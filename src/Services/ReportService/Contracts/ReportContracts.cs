@@ -1,0 +1,97 @@
+namespace ReportService.Contracts;
+
+public sealed record ReportResponse(
+    int Id,
+    int ClubId,
+    string ClubName,
+    string Period,
+    string Status,
+    int CreatedByUserId,
+    DateOnly DueDate,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc,
+    DateTimeOffset? SubmittedAtUtc,
+    DateTimeOffset? ReviewedAtUtc,
+    int Version,
+    IReadOnlyCollection<ReportDetailResponse> Details,
+    IReadOnlyCollection<ReportAttachmentResponse> Attachments,
+    IReadOnlyCollection<ReportFeedbackResponse> Feedback);
+
+public sealed record ReportDetailResponse(
+    int Id,
+    string ActivityName,
+    DateOnly ActivityDate,
+    string Description,
+    int ParticipantCount,
+    string Outcome);
+
+public sealed record ReportAttachmentResponse(
+    int Id,
+    int? ReportDetailId,
+    string FileName,
+    string ContentType,
+    long SizeBytes,
+    string StoragePath,
+    DateTimeOffset UploadedAtUtc);
+
+public sealed record ReportFeedbackResponse(
+    int Id,
+    int ReviewerUserId,
+    string ReviewerName,
+    string Decision,
+    string Message,
+    DateTimeOffset CreatedAtUtc);
+
+public sealed record CreateReportRequest(
+    int ClubId,
+    string ClubName,
+    string Period,
+    DateOnly DueDate,
+    IReadOnlyCollection<UpsertReportDetailRequest> Details);
+
+public sealed record UpdateReportRequest(
+    string Period,
+    DateOnly DueDate,
+    IReadOnlyCollection<UpsertReportDetailRequest> Details);
+
+public sealed record UpsertReportDetailRequest(
+    int? Id,
+    string ActivityName,
+    DateOnly ActivityDate,
+    string Description,
+    int ParticipantCount,
+    string Outcome);
+
+public sealed record AddAttachmentRequest(
+    int? ReportDetailId,
+    string FileName,
+    string ContentType,
+    long SizeBytes,
+    string StoragePath);
+
+public sealed record ReviewRequest(string? Feedback);
+
+public sealed record DeadlineRequest(string Period, DateOnly DueDate, bool IsActive);
+
+public sealed record ReportSummaryResponse(
+    int Total,
+    int Draft,
+    int Submitted,
+    int UnderReview,
+    int Approved,
+    int Rejected,
+    int Overdue);
+
+public sealed record AggregationResponse(
+    string? Period,
+    int ApprovedReports,
+    int TotalActivities,
+    int TotalParticipants,
+    IReadOnlyCollection<ClubAggregationRow> Clubs);
+
+public sealed record ClubAggregationRow(
+    int ClubId,
+    string ClubName,
+    int ApprovedReports,
+    int Activities,
+    int Participants);

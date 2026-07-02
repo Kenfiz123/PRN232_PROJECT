@@ -14,7 +14,7 @@ import {
   UserRoundCog,
   XCircle
 } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   ApiClient,
   AuthResponse,
@@ -56,23 +56,50 @@ export default function App() {
   const api = useMemo(() => new ApiClient(auth?.accessToken), [auth?.accessToken]);
   const isAdmin = auth?.user.roles.includes("ADMIN") ?? false;
 
+  useEffect(() => {
+    if (!auth) return;
+
+    let cancelled = false;
+    setBusy(true);
+    setError(null);
+    loadAll(new ApiClient(auth.accessToken), auth.user)
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Cannot load dashboard data.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setBusy(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [auth?.accessToken]);
+
+  async function loadAll(client: ApiClient, user: AuthResponse["user"]) {
+    const [clubRows, reportPage, reportSummary, exportPage, notificationRows] = await Promise.all([
+      client.getClubs(),
+      client.getReports(),
+      client.getSummary(),
+      client.getExports(),
+      client.getNotifications(user)
+    ]);
+    setClubs(clubRows);
+    setReports(reportPage.items);
+    setSummary(reportSummary);
+    setExportsList(exportPage.items);
+    setNotifications(notificationRows);
+  }
+
   async function refreshAll() {
     if (!auth) return;
     setBusy(true);
     setError(null);
     try {
-      const [clubRows, reportPage, reportSummary, exportPage, notificationRows] = await Promise.all([
-        api.getClubs(),
-        api.getReports(),
-        api.getSummary(),
-        api.getExports(),
-        api.getNotifications(auth.user)
-      ]);
-      setClubs(clubRows);
-      setReports(reportPage.items);
-      setSummary(reportSummary);
-      setExportsList(exportPage.items);
-      setNotifications(notificationRows);
+      await loadAll(api, auth.user);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cannot load dashboard data.");
     } finally {
@@ -89,7 +116,7 @@ export default function App() {
       localStorage.setItem("clubreport.auth", JSON.stringify(result));
       setAuth(result);
       setView("dashboard");
-      setTimeout(() => void refreshAll(), 0);
+      await loadAll(new ApiClient(result.accessToken), result.user);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed.");
     } finally {
@@ -109,12 +136,16 @@ export default function App() {
   async function createDemoReport() {
     const club = clubs[0];
     if (!club) return;
+    const existingPeriods = new Set(reports.filter((report) => report.clubId === club.id).map((report) => report.period));
+    const nextPeriod = ["2026-08", "2026-09", "2026-10", "2026-11", "2026-12", "2027-01"]
+      .find((period) => !existingPeriods.has(period)) ?? `DEMO-${Date.now()}`;
+    const dueDate = /^\d{4}-\d{2}$/.test(nextPeriod) ? `${nextPeriod}-25` : "2027-01-25";
     await runAction(async () => {
       await api.createReport({
         clubId: club.id,
         clubName: club.name,
-        period: "2026-07",
-        dueDate: "2026-07-25",
+        period: nextPeriod,
+        dueDate,
         details: [
           {
             activityName: "Monthly club activity",

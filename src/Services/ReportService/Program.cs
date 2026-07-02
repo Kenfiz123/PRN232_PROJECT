@@ -4,6 +4,7 @@ using ClubReportHub.Shared.Events;
 using ClubReportHub.Shared.Messaging;
 using Hangfire;
 using Hangfire.SqlServer;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using ReportService.Contracts;
 using ReportService.Data;
@@ -391,6 +392,8 @@ using (var scope = app.Services.CreateScope())
     await ReportSeeder.SeedAsync(db);
 }
 
+EnsureHangfireSchema(connectionString);
+
 RecurringJob.AddOrUpdate<ReportDeadlineJobs>(
     "daily-submission-reminder",
     job => job.PublishDailyReminderAsync(CancellationToken.None),
@@ -401,6 +404,18 @@ RecurringJob.AddOrUpdate<ReportDeadlineJobs>(
     "30 8 1 * *");
 
 app.Run();
+
+static void EnsureHangfireSchema(string? connectionString)
+{
+    if (string.IsNullOrWhiteSpace(connectionString))
+    {
+        return;
+    }
+
+    using var connection = new SqlConnection(connectionString);
+    connection.Open();
+    SqlServerObjectsInstaller.Install(connection);
+}
 
 static ReportDetail ToDetail(UpsertReportDetailRequest request) => new()
 {

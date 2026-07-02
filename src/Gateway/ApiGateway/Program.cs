@@ -4,7 +4,9 @@ using Ocelot.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Configuration.AddJsonFile("ocelot.json", optional: false, reloadOnChange: true);
+builder.Configuration
+    .AddJsonFile("ocelot.json", optional: false, reloadOnChange: true)
+    .AddJsonFile($"ocelot.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
 builder.Services.AddClubReportJwt(builder.Configuration);
 builder.Services.AddCors(options =>
 {
@@ -28,3 +30,4 @@ app.MapHealthChecks("/health");
 app.MapGet("/", () => Results.Ok(new { service = "API Gateway", status = "running" }));
 
 await app.UseOcelot();
+await app.RunAsync();

@@ -9,6 +9,7 @@ using ExportService.Jobs;
 using ExportService.Models;
 using Hangfire;
 using Hangfire.SqlServer;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -153,6 +154,8 @@ using (var scope = app.Services.CreateScope())
     await db.Database.MigrateAsync();
 }
 
+EnsureHangfireSchema(connectionString);
+
 RecurringJob.AddOrUpdate<ExportJob>(
     "expired-export-cleanup",
     job => job.CleanupExpiredAsync(CancellationToken.None),
@@ -163,6 +166,18 @@ RecurringJob.AddOrUpdate<ExportJob>(
     "30 23 28-31 * *");
 
 app.Run();
+
+static void EnsureHangfireSchema(string? connectionString)
+{
+    if (string.IsNullOrWhiteSpace(connectionString))
+    {
+        return;
+    }
+
+    using var connection = new SqlConnection(connectionString);
+    connection.Open();
+    SqlServerObjectsInstaller.Install(connection);
+}
 
 static ExportResponse ToResponse(ExportRequest request) => new(
     request.Id,

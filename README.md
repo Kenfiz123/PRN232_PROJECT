@@ -16,6 +16,7 @@ ClubReport Hub is an ASP.NET Core microservices assignment implementation for ce
 - JWT authentication with `ADMIN` and `CLUB_MANAGER` roles.
 - RabbitMQ event publishing and notification consumption.
 - Hangfire recurring jobs for deadline reminders, missing report checks, export cleanup, and automatic consolidated exports.
+- Evidence upload for report attachments with file type, extension, size, and safe filename validation.
 - PDF export through QuestPDF and Excel export through ClosedXML.
 - Docker Compose stack for frontend, gateway, services, SQL Server, RabbitMQ, and persistent volumes.
 - Swagger/OpenAPI enabled on every backend service and the gateway.

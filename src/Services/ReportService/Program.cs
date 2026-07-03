@@ -4,8 +4,11 @@ using ClubReportHub.Shared.Events;
 using ClubReportHub.Shared.Messaging;
 using Hangfire;
 using Hangfire.SqlServer;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ReportService.Attachments;
 using ReportService.Contracts;
 using ReportService.Data;
 using ReportService.Jobs;
@@ -15,6 +18,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<ReportDbContext>(options => options.UseSqlServer(connectionString));
+builder.Services.Configure<ReportAttachmentOptions>(builder.Configuration.GetSection(ReportAttachmentOptions.SectionName));
 builder.Services.AddClubReportJwt(builder.Configuration);
 builder.Services.AddRabbitMqEventBus(builder.Configuration);
 builder.Services.AddHangfire(config => config
@@ -196,7 +200,12 @@ reports.MapPut("/{id:int}", async (int id, UpdateReportRequest request, ReportDb
     return Results.Ok(ToResponse(report));
 });
 
-reports.MapPost("/{id:int}/attachments", async (int id, AddAttachmentRequest request, ReportDbContext db, ClaimsPrincipal user) =>
+reports.MapPost("/{id:int}/attachments", async (
+    int id,
+    AddAttachmentRequest request,
+    ReportDbContext db,
+    IOptions<ReportAttachmentOptions> attachmentOptions,
+    ClaimsPrincipal user) =>
 {
     var report = await db.Reports.Include(x => x.Details).Include(x => x.Attachments).Include(x => x.Feedback).FirstOrDefaultAsync(x => x.Id == id);
     if (report is null)
@@ -204,18 +213,18 @@ reports.MapPost("/{id:int}/attachments", async (int id, AddAttachmentRequest req
         return Results.NotFound();
     }
 
-    if (request.SizeBytes > 10 * 1024 * 1024)
+    var validation = ReportAttachmentPolicy.Validate(request.FileName, request.ContentType, request.SizeBytes, attachmentOptions.Value);
+    if (!validation.Succeeded)
     {
-        return Results.BadRequest(new { message = "Maximum attachment metadata size is 10 MB." });
+        return Results.BadRequest(new { message = validation.ErrorMessage });
     }
 
-    var allowedTypes = new[] { "image/png", "image/jpeg", "application/pdf", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
-    if (!allowedTypes.Contains(request.ContentType))
+    if (request.ReportDetailId.HasValue && report.Details.All(x => x.Id != request.ReportDetailId.Value))
     {
-        return Results.BadRequest(new { message = "File type is not allowed." });
+        return Results.BadRequest(new { message = "Report detail does not belong to this report." });
     }
 
-    var safeName = Path.GetFileName(request.FileName);
+    var safeName = ReportAttachmentPolicy.GetSafeFileName(request.FileName);
     report.Attachments.Add(new ReportAttachment
     {
         ReportDetailId = request.ReportDetailId,
@@ -228,6 +237,87 @@ reports.MapPost("/{id:int}/attachments", async (int id, AddAttachmentRequest req
     await db.SaveChangesAsync();
     await AddAuditAsync(db, report.Id, "Attachment", user.GetUserId(), $"Attachment metadata added: {safeName}");
     return Results.Ok(ToResponse(report));
+});
+
+reports.MapPost("/{id:int}/attachments/upload", async (
+    int id,
+    [FromForm] IFormFile? file,
+    [FromForm] int? reportDetailId,
+    ReportDbContext db,
+    IOptions<ReportAttachmentOptions> attachmentOptions,
+    IWebHostEnvironment environment,
+    ClaimsPrincipal user,
+    CancellationToken cancellationToken) =>
+{
+    var report = await db.Reports
+        .Include(x => x.Details)
+        .Include(x => x.Attachments)
+        .Include(x => x.Feedback)
+        .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+    if (report is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (reportDetailId.HasValue && report.Details.All(x => x.Id != reportDetailId.Value))
+    {
+        return Results.BadRequest(new { message = "Report detail does not belong to this report." });
+    }
+
+    if (file is null)
+    {
+        return Results.BadRequest(new { message = "Evidence file is required." });
+    }
+
+    var validation = ReportAttachmentPolicy.Validate(file.FileName, file.ContentType, file.Length, attachmentOptions.Value);
+    if (!validation.Succeeded)
+    {
+        return Results.BadRequest(new { message = validation.ErrorMessage });
+    }
+
+    var safeName = ReportAttachmentPolicy.GetSafeFileName(file.FileName);
+    var storageRoot = ReportAttachmentPolicy.ResolveStorageRoot(attachmentOptions.Value.StoragePath, environment.ContentRootPath);
+    var reportFolder = Path.Combine(storageRoot, report.Id.ToString());
+    Directory.CreateDirectory(reportFolder);
+
+    var storedFileName = ReportAttachmentPolicy.CreateStoredFileName(safeName);
+    var filePath = Path.Combine(reportFolder, storedFileName);
+    await using (var stream = new FileStream(filePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+    {
+        await file.CopyToAsync(stream, cancellationToken);
+    }
+
+    report.Attachments.Add(new ReportAttachment
+    {
+        ReportDetailId = reportDetailId,
+        FileName = safeName,
+        ContentType = file.ContentType,
+        SizeBytes = file.Length,
+        StoragePath = filePath
+    });
+    report.UpdatedAtUtc = DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync(cancellationToken);
+    await AddAuditAsync(db, report.Id, "AttachmentUpload", user.GetUserId(), $"Evidence uploaded: {safeName}", cancellationToken);
+    return Results.Ok(ToResponse(report));
+})
+.Accepts<IFormFile>("multipart/form-data")
+.DisableAntiforgery();
+
+reports.MapGet("/{id:int}/attachments/{attachmentId:int}/download", async (
+    int id,
+    int attachmentId,
+    ReportDbContext db,
+    CancellationToken cancellationToken) =>
+{
+    var attachment = await db.ReportAttachments
+        .AsNoTracking()
+        .FirstOrDefaultAsync(x => x.ReportId == id && x.Id == attachmentId, cancellationToken);
+    if (attachment is null || !File.Exists(attachment.StoragePath))
+    {
+        return Results.NotFound(new { message = "Attachment file is not available." });
+    }
+
+    return Results.File(attachment.StoragePath, attachment.ContentType, attachment.FileName);
 });
 
 reports.MapPost("/{id:int}/submit", async (int id, ReportDbContext db, IEventBus eventBus, ClaimsPrincipal user, CancellationToken cancellationToken) =>

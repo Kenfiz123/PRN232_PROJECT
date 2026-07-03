@@ -37,6 +37,8 @@ All public calls should go through the API Gateway at `http://localhost:7000`.
 | POST | `/api/reports/` | Create draft |
 | PUT | `/api/reports/{id}` | Update draft/rejected report |
 | POST | `/api/reports/{id}/attachments` | Add attachment metadata |
+| POST | `/api/reports/{id}/attachments/upload` | Upload evidence file with validation |
+| GET | `/api/reports/{id}/attachments/{attachmentId}/download` | Download uploaded evidence |
 | POST | `/api/reports/{id}/submit` | Submit report |
 | POST | `/api/reports/{id}/review` | Mark under review |
 | POST | `/api/reports/{id}/approve` | Approve report |

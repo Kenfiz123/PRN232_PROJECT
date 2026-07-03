@@ -45,6 +45,40 @@ button:disabled {
   opacity: 0.6;
 }
 
+.icon-upload {
+  border: 1px solid #d6dce8;
+  background: #ffffff;
+  color: #172033;
+  min-height: 38px;
+  min-width: 40px;
+  padding: 0 10px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.icon-upload:hover {
+  border-color: #91a2bd;
+}
+
+.icon-upload input {
+  display: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 input {
   width: 100%;
   border: 1px solid #cfd7e6;
@@ -319,6 +353,10 @@ nav {
   border-top: 1px solid #e0e6ef;
 }
 
+.workflow-table .table-row {
+  grid-template-columns: minmax(160px, 1.1fr) minmax(90px, 0.55fr) minmax(120px, 0.7fr) minmax(82px, 0.42fr) minmax(130px, 0.75fr) minmax(170px, 0.9fr);
+}
+
 .table-row:first-child {
   border-top: 0;
 }
@@ -366,6 +404,23 @@ nav {
 .badge.danger {
   color: #9f2f42;
   background: #ffe5ea;
+}
+
+.evidence-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: #526070;
+}
+
+.evidence-cell small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 110px;
+  color: #64748b;
 }
 
 .list-grid {
@@ -468,6 +523,10 @@ dd {
     grid-template-columns: minmax(120px, 1fr) 82px 116px 72px minmax(130px, 0.8fr);
     overflow-x: auto;
   }
+
+  .workflow-table .table-row {
+    grid-template-columns: minmax(120px, 1fr) 82px 116px 72px minmax(116px, 0.8fr) minmax(150px, 0.9fr);
+  }
 }
 
 @media (max-width: 640px) {
@@ -491,5 +550,9 @@ dd {
 
   .table-row {
     min-width: 720px;
+  }
+
+  .workflow-table .table-row {
+    min-width: 860px;
   }
 }

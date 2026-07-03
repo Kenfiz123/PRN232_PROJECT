@@ -54,6 +54,9 @@ services:
       ConnectionStrings__DefaultConnection: Server=sqlserver,1433;Database=ClubReportHub_Club;User Id=sa;Password=${SQL_PASSWORD:-ClubReportHub!2026};TrustServerCertificate=True
       Jwt__SigningKey: ${JWT_SIGNING_KEY:-dev-only-change-this-signing-key-with-at-least-32-characters}
       RabbitMQ__HostName: rabbitmq
+      Attachments__StoragePath: /app/attachments
+    volumes:
+      - report-attachments:/app/attachments
     depends_on:
       sqlserver:
         condition: service_healthy
@@ -146,4 +149,5 @@ services:
 volumes:
   sqlserver-data:
   rabbitmq-data:
+  report-attachments:
   export-files:

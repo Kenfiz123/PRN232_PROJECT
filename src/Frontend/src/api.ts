@@ -36,6 +36,16 @@ export type Club = {
 
 export type ReportStatus = "Draft" | "Submitted" | "Under Review" | "Approved" | "Rejected";
 
+export type ReportAttachment = {
+  id: number;
+  reportDetailId?: number;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  storagePath: string;
+  uploadedAtUtc: string;
+};
+
 export type Report = {
   id: number;
   clubId: number;
@@ -57,7 +67,7 @@ export type Report = {
     participantCount: number;
     outcome: string;
   }>;
-  attachments: unknown[];
+  attachments: ReportAttachment[];
   feedback: Array<{
     id: number;
     reviewerName: string;
@@ -175,6 +185,19 @@ export class ApiClient {
     });
   }
 
+  async uploadAttachment(reportId: number, file: File, reportDetailId?: number) {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (reportDetailId) {
+      formData.append("reportDetailId", String(reportDetailId));
+    }
+
+    return this.request<Report>(`/api/reports/${reportId}/attachments/upload`, {
+      method: "POST",
+      body: formData
+    });
+  }
+
   async getExports() {
     return this.request<{ total: number; items: ExportRequest[] }>("/api/exports/?page=1&pageSize=20");
   }
@@ -199,13 +222,18 @@ export class ApiClient {
   }
 
   private async request<T>(path: string, init: RequestInit = {}) {
+    const headers = new Headers(init.headers);
+    if (!(init.body instanceof FormData)) {
+      headers.set("Content-Type", "application/json");
+    }
+
+    if (this.token) {
+      headers.set("Authorization", `Bearer ${this.token}`);
+    }
+
     const response = await fetch(`${baseUrl}${path}`, {
       ...init,
-      headers: {
-        "Content-Type": "application/json",
-        ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
-        ...init.headers
-      }
+      headers
     });
 
     if (!response.ok) {

@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Services\ReportService\ReportService.csproj" />
     <ProjectReference Include="..\..\src\Shared\ClubReportHub.Shared\ClubReportHub.Shared.csproj" />
   </ItemGroup>
 

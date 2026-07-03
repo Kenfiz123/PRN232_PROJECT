@@ -16,9 +16,10 @@
 1. Log in with `manager@club.local` / `Manager@12345`.
 2. Open Reports.
 3. Create a demo report draft.
-4. Submit a draft or rejected report for administrator review.
-5. Read notifications and feedback after approval or rejection.
-6. Request or download approved outputs when available.
+4. Upload supporting evidence from the report row before or after saving the draft.
+5. Submit a draft or rejected report for administrator review.
+6. Read notifications and feedback after approval or rejection.
+7. Request or download approved outputs when available.
 
 ## Status Flow
 

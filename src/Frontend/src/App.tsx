@@ -8,9 +8,11 @@ import {
   Gauge,
   LogIn,
   LogOut,
+  Paperclip,
   RefreshCcw,
   Send,
   ShieldCheck,
+  Upload,
   UserRoundCog,
   XCircle
 } from "lucide-react";
@@ -159,6 +161,12 @@ export default function App() {
     });
   }
 
+  async function uploadEvidence(reportId: number, file: File) {
+    await runAction(async () => {
+      await api.uploadAttachment(reportId, file);
+    });
+  }
+
   async function runAction(action: () => Promise<void>) {
     setBusy(true);
     setError(null);
@@ -260,6 +268,7 @@ export default function App() {
             review={(id) => runAction(() => api.reviewReport(id).then(() => undefined))}
             approve={(id) => runAction(() => api.approveReport(id).then(() => undefined))}
             reject={(id) => runAction(() => api.rejectReport(id, draftFeedback).then(() => undefined))}
+            uploadEvidence={uploadEvidence}
           />
         )}
         {view === "clubs" && <ClubsView clubs={clubs} />}
@@ -321,7 +330,14 @@ function ReportsView(props: {
   review: (id: number) => void;
   approve: (id: number) => void;
   reject: (id: number) => void;
+  uploadEvidence: (id: number, file: File) => void;
 }) {
+  function handleEvidenceChange(reportId: number, fileList: FileList | null) {
+    const file = fileList?.[0];
+    if (!file) return;
+    props.uploadEvidence(reportId, file);
+  }
+
   return (
     <section className="panel">
       <div className="panel-head">
@@ -337,12 +353,13 @@ function ReportsView(props: {
           <input value={props.feedback} onChange={(event) => props.setFeedback(event.target.value)} />
         </label>
       </div>
-      <div className="report-table" role="table" aria-label="Reports">
+      <div className="report-table workflow-table" role="table" aria-label="Reports">
         <div className="table-row table-head" role="row">
           <span>Club</span>
           <span>Period</span>
           <span>Status</span>
           <span>Activities</span>
+          <span>Evidence</span>
           <span>Actions</span>
         </div>
         {props.reports.map((report) => (
@@ -351,7 +368,25 @@ function ReportsView(props: {
             <span>{report.period}</span>
             <span><StatusBadge status={report.status} /></span>
             <span>{report.details.length}</span>
+            <span className="evidence-cell" title={report.attachments.map((attachment) => attachment.fileName).join(", ")}>
+              <Paperclip size={15} aria-hidden />
+              {report.attachments.length}
+              {report.attachments[0] && <small>{report.attachments[0].fileName}</small>}
+            </span>
             <span className="actions">
+              <label className="icon-upload" title="Upload evidence">
+                <Upload size={16} aria-hidden />
+                <span className="sr-only">Upload evidence</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,application/pdf,.xlsx"
+                  disabled={props.busy}
+                  onChange={(event) => {
+                    handleEvidenceChange(report.id, event.currentTarget.files);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </label>
               {(report.status === "Draft" || report.status === "Rejected") && (
                 <button type="button" onClick={() => props.submit(report.id)} title="Submit report">
                   <Send size={16} aria-hidden />

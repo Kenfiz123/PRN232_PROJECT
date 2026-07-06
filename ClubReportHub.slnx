@@ -4,9 +4,11 @@
     <Project Path="src/Gateway/ApiGateway/ApiGateway.csproj" />
   </Folder>
   <Folder Name="/src/Services/">
+    <Project Path="src/Services/ActivityService/ActivityService.csproj" />
     <Project Path="src/Services/AuthService/AuthService.csproj" />
     <Project Path="src/Services/ClubService/ClubService.csproj" />
     <Project Path="src/Services/ExportService/ExportService.csproj" />
+    <Project Path="src/Services/FinanceService/FinanceService.csproj" />
     <Project Path="src/Services/NotificationService/NotificationService.csproj" />
     <Project Path="src/Services/ReportService/ReportService.csproj" />
   </Folder>

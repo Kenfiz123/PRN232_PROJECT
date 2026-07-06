@@ -1,22 +1,25 @@
-# ClubReport Hub
+# FPTU Club Management & Report Hub
 
-ClubReport Hub is an ASP.NET Core microservices assignment implementation for centralized university club reporting, approval, aggregation, notifications, and PDF/Excel export.
+FPTU Club Management & Report Hub is an ASP.NET Core microservices assignment implementation for centralized university club operations, activity calendars, reporting, KPI leaderboard, finance workflows, notifications, and PDF/Excel export.
 
 ## Implemented Scope
 
-- React web UI for Administrator and Club Manager workflows.
-- Ocelot API Gateway as the single public API entry point.
-- Five ASP.NET Core Web API microservices:
+- React web UI for Student, Club Manager, Treasurer, and Administrator workflows.
+- YARP API Gateway as the single public API entry point.
+- Seven ASP.NET Core Web API microservices:
   - Auth Service
   - Club Service
+  - Activity Service
   - Report Service
+  - Finance Service
   - Export Service
   - Notification Service
 - SQL Server persistence with EF Core migrations and seed data.
-- JWT authentication with `ADMIN` and `CLUB_MANAGER` roles.
+- JWT authentication with `ADMIN`, `STUDENT_AFFAIRS_ADMIN`, `CLUB_MANAGER`, `TREASURER`, and `CLUB_MEMBER` roles.
 - RabbitMQ event publishing and notification consumption.
 - Hangfire recurring jobs for deadline reminders, missing report checks, export cleanup, and automatic consolidated exports.
 - Evidence upload for report attachments with file type, extension, size, and safe filename validation.
+- Activity calendar, KPI leaderboard, budget proposal, settlement, and finance transaction APIs.
 - PDF export through QuestPDF and Excel export through ClosedXML.
 - Docker Compose stack for frontend, gateway, services, SQL Server, RabbitMQ, and persistent volumes.
 - Swagger/OpenAPI enabled on every backend service and the gateway.
@@ -26,7 +29,10 @@ ClubReport Hub is an ASP.NET Core microservices assignment implementation for ce
 | Role | Username | Password |
 | --- | --- | --- |
 | Administrator | `admin@club.local` | `Admin@12345` |
+| Student Affairs Admin | `studentaffairs@club.local` | `Admin@12345` |
 | Club Manager | `manager@club.local` | `Manager@12345` |
+| Treasurer | `treasurer@club.local` | `Treasurer@12345` |
+| Club Member | `student@club.local` | `Student@12345` |
 
 ## Quick Start
 

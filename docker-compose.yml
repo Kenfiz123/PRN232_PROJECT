@@ -65,6 +65,23 @@ services:
     ports:
       - "5102:8080"
 
+  activity-service:
+    build:
+      context: .
+      dockerfile: src/Services/ActivityService/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ConnectionStrings__DefaultConnection: Server=sqlserver,1433;Database=ClubReportHub_Activity;User Id=sa;Password=${SQL_PASSWORD:-ClubReportHub!2026};TrustServerCertificate=True
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:-dev-only-change-this-signing-key-with-at-least-32-characters}
+      RabbitMQ__HostName: rabbitmq
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "5106:8080"
+
   report-service:
     build:
       context: .
@@ -81,6 +98,23 @@ services:
         condition: service_healthy
     ports:
       - "5103:8080"
+
+  finance-service:
+    build:
+      context: .
+      dockerfile: src/Services/FinanceService/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ConnectionStrings__DefaultConnection: Server=sqlserver,1433;Database=ClubReportHub_Finance;User Id=sa;Password=${SQL_PASSWORD:-ClubReportHub!2026};TrustServerCertificate=True
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:-dev-only-change-this-signing-key-with-at-least-32-characters}
+      RabbitMQ__HostName: rabbitmq
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "5107:8080"
 
   export-service:
     build:
@@ -129,7 +163,9 @@ services:
     depends_on:
       - auth-service
       - club-service
+      - activity-service
       - report-service
+      - finance-service
       - export-service
       - notification-service
     ports:

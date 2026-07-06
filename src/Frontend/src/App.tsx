@@ -1,6 +1,7 @@
 import {
   Bell,
   Building2,
+  CalendarDays,
   CheckCircle2,
   Download,
   FileSpreadsheet,
@@ -12,23 +13,28 @@ import {
   RefreshCcw,
   Send,
   ShieldCheck,
+  Trophy,
   Upload,
   UserRoundCog,
+  WalletCards,
   XCircle
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   ApiClient,
+  ActivityItem,
   AuthResponse,
+  BudgetProposal,
   Club,
   ExportRequest,
+  KpiLeaderboard,
   NotificationItem,
   Report,
   ReportStatus,
   ReportSummary
 } from "./api";
 
-type View = "dashboard" | "reports" | "clubs" | "exports" | "notifications";
+type View = "dashboard" | "reports" | "clubs" | "activities" | "kpi" | "finance" | "exports" | "notifications";
 
 const statusTone: Record<ReportStatus, string> = {
   Draft: "neutral",
@@ -49,6 +55,9 @@ export default function App() {
   const [clubs, setClubs] = useState<Club[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [summary, setSummary] = useState<ReportSummary | null>(null);
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [kpi, setKpi] = useState<KpiLeaderboard | null>(null);
+  const [budgetProposals, setBudgetProposals] = useState<BudgetProposal[]>([]);
   const [exportsList, setExportsList] = useState<ExportRequest[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +65,8 @@ export default function App() {
   const [draftFeedback, setDraftFeedback] = useState("Please add clearer evidence and resubmit.");
 
   const api = useMemo(() => new ApiClient(auth?.accessToken), [auth?.accessToken]);
-  const isAdmin = auth?.user.roles.includes("ADMIN") ?? false;
+  const isAdmin = auth?.user.roles.some((role) => role === "ADMIN" || role === "SYSTEM_ADMIN" || role === "STUDENT_AFFAIRS_ADMIN") ?? false;
+  const canManageFinance = isAdmin || (auth?.user.roles.some((role) => role === "CLUB_MANAGER" || role === "TREASURER") ?? false);
 
   useEffect(() => {
     if (!auth) return;
@@ -82,16 +92,24 @@ export default function App() {
   }, [auth?.accessToken]);
 
   async function loadAll(client: ApiClient, user: AuthResponse["user"]) {
-    const [clubRows, reportPage, reportSummary, exportPage, notificationRows] = await Promise.all([
+    const canUseReportWorkflow = user.roles.some((role) => role === "ADMIN" || role === "SYSTEM_ADMIN" || role === "STUDENT_AFFAIRS_ADMIN" || role === "CLUB_MANAGER");
+    const canUseFinanceWorkflow = canUseReportWorkflow || user.roles.some((role) => role === "TREASURER");
+    const [clubRows, reportPage, reportSummary, activityRows, kpiRows, budgetRows, exportPage, notificationRows] = await Promise.all([
       client.getClubs(),
-      client.getReports(),
-      client.getSummary(),
-      client.getExports(),
+      canUseReportWorkflow ? client.getReports() : Promise.resolve({ total: 0, items: [] }),
+      canUseReportWorkflow ? client.getSummary() : Promise.resolve(null),
+      client.getActivities(),
+      client.getKpiLeaderboard("2026-07"),
+      canUseFinanceWorkflow ? client.getBudgetProposals() : Promise.resolve([]),
+      canUseReportWorkflow ? client.getExports() : Promise.resolve({ total: 0, items: [] }),
       client.getNotifications(user)
     ]);
     setClubs(clubRows);
     setReports(reportPage.items);
     setSummary(reportSummary);
+    setActivities(activityRows);
+    setKpi(kpiRows);
+    setBudgetProposals(budgetRows);
     setExportsList(exportPage.items);
     setNotifications(notificationRows);
   }
@@ -131,6 +149,9 @@ export default function App() {
     setAuth(null);
     setReports([]);
     setClubs([]);
+    setActivities([]);
+    setKpi(null);
+    setBudgetProposals([]);
     setExportsList([]);
     setNotifications([]);
   }
@@ -152,7 +173,7 @@ export default function App() {
           {
             activityName: "Monthly club activity",
             activityDate: "2026-07-12",
-            description: "Submitted through ClubReport Hub demo workflow.",
+            description: "Submitted through FPTU Club Hub demo workflow.",
             participantCount: 32,
             outcome: "Activity evidence and participation data recorded."
           }
@@ -164,6 +185,37 @@ export default function App() {
   async function uploadEvidence(reportId: number, file: File) {
     await runAction(async () => {
       await api.uploadAttachment(reportId, file);
+    });
+  }
+
+  async function createDemoActivity() {
+    const club = clubs[0];
+    if (!club) return;
+    await runAction(async () => {
+      await api.createActivity({
+        clubId: club.id,
+        clubName: club.name,
+        title: `FPTU club activity ${activities.length + 1}`,
+        description: "Created from the Activity Service demo workflow.",
+        startTimeUtc: new Date(Date.now() + 86400000).toISOString(),
+        endTimeUtc: new Date(Date.now() + 93600000).toISOString(),
+        location: "FPTU Student Hall"
+      });
+    });
+  }
+
+  async function createDemoBudgetProposal() {
+    const club = clubs[0];
+    if (!club) return;
+    await runAction(async () => {
+      await api.createBudgetProposal({
+        clubId: club.id,
+        clubName: club.name,
+        activityId: activities.find((item) => item.clubId === club.id)?.id,
+        title: `Event budget ${budgetProposals.length + 1}`,
+        description: "Budget proposal created from Finance Service demo workflow.",
+        requestedAmount: 3000000
+      });
     });
   }
 
@@ -187,8 +239,8 @@ export default function App() {
           <div className="brand-mark">
             <Building2 size={28} aria-hidden />
           </div>
-          <h1>ClubReport Hub</h1>
-          <p>Centralized club reporting and approval workspace.</p>
+          <h1>FPTU Club Hub</h1>
+          <p>Club management, reporting, KPI, and finance workspace.</p>
           <form onSubmit={handleLogin} className="login-form">
             <label>
               Username
@@ -213,6 +265,14 @@ export default function App() {
               <UserRoundCog size={16} aria-hidden />
               Manager
             </button>
+            <button type="button" onClick={() => { setUsername("treasurer@club.local"); setPassword("Treasurer@12345"); }}>
+              <WalletCards size={16} aria-hidden />
+              Treasurer
+            </button>
+            <button type="button" onClick={() => { setUsername("student@club.local"); setPassword("Student@12345"); }}>
+              <CalendarDays size={16} aria-hidden />
+              Student
+            </button>
           </div>
         </section>
       </main>
@@ -225,14 +285,17 @@ export default function App() {
         <div className="brand-row">
           <Building2 size={26} aria-hidden />
           <div>
-            <strong>ClubReport</strong>
-            <span>Hub</span>
+            <strong>FPTU Club</strong>
+            <span>Management Hub</span>
           </div>
         </div>
         <nav aria-label="Primary">
           <NavButton icon={<Gauge />} label="Dashboard" active={view === "dashboard"} onClick={() => setView("dashboard")} />
           <NavButton icon={<FileText />} label="Reports" active={view === "reports"} onClick={() => setView("reports")} />
           <NavButton icon={<Building2 />} label="Clubs" active={view === "clubs"} onClick={() => setView("clubs")} />
+          <NavButton icon={<CalendarDays />} label="Activities" active={view === "activities"} onClick={() => setView("activities")} />
+          <NavButton icon={<Trophy />} label="KPI" active={view === "kpi"} onClick={() => setView("kpi")} />
+          <NavButton icon={<WalletCards />} label="Finance" active={view === "finance"} onClick={() => setView("finance")} />
           <NavButton icon={<FileSpreadsheet />} label="Exports" active={view === "exports"} onClick={() => setView("exports")} />
           <NavButton icon={<Bell />} label="Notifications" active={view === "notifications"} onClick={() => setView("notifications")} />
         </nav>
@@ -246,7 +309,7 @@ export default function App() {
         <header className="topbar">
           <div>
             <h1>{viewLabel(view)}</h1>
-            <p>{auth.user.fullName} · {auth.user.roles.join(", ")}</p>
+            <p>{auth.user.fullName} - {auth.user.roles.join(", ")}</p>
           </div>
           <button className="secondary" type="button" onClick={refreshAll} disabled={busy} title="Refresh dashboard data">
             <RefreshCcw size={18} aria-hidden />
@@ -255,7 +318,7 @@ export default function App() {
         </header>
 
         {error && <div className="alert">{error}</div>}
-        {view === "dashboard" && <Dashboard summary={summary} reports={reports} notifications={notifications} />}
+        {view === "dashboard" && <Dashboard summary={summary} reports={reports} notifications={notifications} kpi={kpi} activities={activities} budgetProposals={budgetProposals} />}
         {view === "reports" && (
           <ReportsView
             reports={reports}
@@ -272,6 +335,20 @@ export default function App() {
           />
         )}
         {view === "clubs" && <ClubsView clubs={clubs} />}
+        {view === "activities" && (
+          <ActivitiesView activities={activities} busy={busy} createActivity={createDemoActivity} />
+        )}
+        {view === "kpi" && <KpiView leaderboard={kpi} />}
+        {view === "finance" && (
+          <FinanceView
+            proposals={budgetProposals}
+            busy={busy}
+            canManageFinance={canManageFinance}
+            isAdmin={isAdmin}
+            createProposal={createDemoBudgetProposal}
+            approveProposal={(id, amount) => runAction(() => api.approveBudgetProposal(id, amount).then(() => undefined))}
+          />
+        )}
         {view === "exports" && (
           <ExportsView
             exportsList={exportsList}
@@ -290,12 +367,26 @@ export default function App() {
   );
 }
 
-function Dashboard({ summary, reports, notifications }: { summary: ReportSummary | null; reports: Report[]; notifications: NotificationItem[] }) {
+function Dashboard({
+  summary,
+  reports,
+  notifications,
+  kpi,
+  activities,
+  budgetProposals
+}: {
+  summary: ReportSummary | null;
+  reports: Report[];
+  notifications: NotificationItem[];
+  kpi: KpiLeaderboard | null;
+  activities: ActivityItem[];
+  budgetProposals: BudgetProposal[];
+}) {
   const stats = [
     ["Total", summary?.total ?? 0],
     ["Submitted", summary?.submitted ?? 0],
-    ["Approved", summary?.approved ?? 0],
-    ["Overdue", summary?.overdue ?? 0]
+    ["Top KPI", kpi?.clubs[0]?.points ?? 0],
+    ["Budgets", budgetProposals.length]
   ];
   return (
     <section className="grid">
@@ -314,6 +405,10 @@ function Dashboard({ summary, reports, notifications }: { summary: ReportSummary
       <section className="panel">
         <h2>Unread Signals</h2>
         <NotificationList notifications={notifications.filter((item) => !item.isRead).slice(0, 6)} />
+      </section>
+      <section className="panel">
+        <h2>Upcoming Activities</h2>
+        <ActivityList activities={activities.slice(0, 5)} />
       </section>
     </section>
   );
@@ -436,6 +531,116 @@ function ClubsView({ clubs }: { clubs: Club[] }) {
   );
 }
 
+function ActivitiesView({ activities, busy, createActivity }: { activities: ActivityItem[]; busy: boolean; createActivity: () => void }) {
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h2>Activity Calendar</h2>
+        <button className="primary" type="button" disabled={busy} onClick={createActivity} title="Create demo activity">
+          <CalendarDays size={18} aria-hidden />
+          New activity
+        </button>
+      </div>
+      <ActivityList activities={activities} />
+    </section>
+  );
+}
+
+function ActivityList({ activities }: { activities: ActivityItem[] }) {
+  if (activities.length === 0) return <p className="empty">No activities loaded.</p>;
+  return (
+    <div className="compact-list">
+      {activities.map((activity) => (
+        <div key={activity.id} className="compact-row">
+          <div>
+            <strong>{activity.title}</strong>
+            <span>{activity.clubName} - {new Date(activity.startTimeUtc).toLocaleString()} - {activity.location}</span>
+          </div>
+          <span className={`badge ${activity.status === "Completed" ? "success" : "info"}`}>{activity.participants.length} joined</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function KpiView({ leaderboard }: { leaderboard: KpiLeaderboard | null }) {
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h2>KPI Leaderboard</h2>
+        <span className="muted-text">{leaderboard?.period ?? "All periods"}</span>
+      </div>
+      {(!leaderboard || leaderboard.clubs.length === 0) ? (
+        <p className="empty">No KPI data loaded.</p>
+      ) : (
+        <div className="report-table kpi-table" role="table" aria-label="KPI leaderboard">
+          <div className="table-row table-head" role="row">
+            <span>Rank</span>
+            <span>Club</span>
+            <span>Points</span>
+            <span>Approved</span>
+            <span>Participants</span>
+          </div>
+          {leaderboard.clubs.map((club) => (
+            <div className="table-row" role="row" key={club.clubId}>
+              <span>#{club.rank}</span>
+              <span>{club.clubName}</span>
+              <span><span className="badge success">{club.points}</span></span>
+              <span>{club.approvedReports}</span>
+              <span>{club.participants}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function FinanceView(props: {
+  proposals: BudgetProposal[];
+  busy: boolean;
+  canManageFinance: boolean;
+  isAdmin: boolean;
+  createProposal: () => void;
+  approveProposal: (id: number, amount?: number) => void;
+}) {
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h2>Budget Proposals</h2>
+        {props.canManageFinance && (
+          <button className="primary" type="button" disabled={props.busy} onClick={props.createProposal} title="Create demo budget proposal">
+            <WalletCards size={18} aria-hidden />
+            New proposal
+          </button>
+        )}
+      </div>
+      {props.proposals.length === 0 ? (
+        <p className="empty">No budget proposals loaded.</p>
+      ) : (
+        <div className="compact-list">
+          {props.proposals.map((proposal) => (
+            <div key={proposal.id} className="compact-row finance-row">
+              <div>
+                <strong>{proposal.title}</strong>
+                <span>{proposal.clubName} - requested {formatCurrency(proposal.requestedAmount)} - {proposal.settlements.length} settlement</span>
+              </div>
+              <div className="finance-actions">
+                <span className={`badge ${proposal.status === "Approved" || proposal.status === "Settled" ? "success" : "info"}`}>{proposal.status}</span>
+                {props.isAdmin && proposal.status === "Submitted" && (
+                  <button type="button" disabled={props.busy} onClick={() => props.approveProposal(proposal.id, proposal.requestedAmount)} title="Approve budget proposal">
+                    <CheckCircle2 size={16} aria-hidden />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ExportsView({ exportsList, busy, createExport }: { exportsList: ExportRequest[]; busy: boolean; createExport: (type: "PDF" | "EXCEL") => void }) {
   return (
     <section className="panel">
@@ -491,7 +696,7 @@ function ReportList({ reports }: { reports: Report[] }) {
         <div key={report.id} className="compact-row">
           <div>
             <strong>{report.clubName}</strong>
-            <span>{report.period} · v{report.version}</span>
+            <span>{report.period} - v{report.version}</span>
           </div>
           <StatusBadge status={report.status} />
         </div>
@@ -534,11 +739,18 @@ function NavButton({ icon, label, active, onClick }: { icon: JSX.Element; label:
   );
 }
 
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value);
+}
+
 function viewLabel(view: View) {
   return {
     dashboard: "Dashboard",
     reports: "Reports",
     clubs: "Clubs",
+    activities: "Activities",
+    kpi: "KPI",
+    finance: "Finance",
     exports: "Exports",
     notifications: "Notifications"
   }[view];

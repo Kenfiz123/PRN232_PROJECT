@@ -95,3 +95,25 @@ public sealed record ClubAggregationRow(
     int ApprovedReports,
     int Activities,
     int Participants);
+
+public sealed record KpiLeaderboardResponse(
+    string? Period,
+    DateTimeOffset CalculatedAtUtc,
+    IReadOnlyCollection<KpiLeaderboardRow> Clubs);
+
+public sealed record KpiLeaderboardRow(
+    int Rank,
+    int ClubId,
+    string ClubName,
+    decimal Points,
+    int ApprovedReports,
+    int Activities,
+    int Participants,
+    int RejectedReports,
+    int OverdueReports);
+
+public sealed record KpiRuleResponse(
+    string Code,
+    string Name,
+    decimal Points,
+    string Description);

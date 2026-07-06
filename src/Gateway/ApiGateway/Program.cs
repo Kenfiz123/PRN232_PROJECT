@@ -1,12 +1,10 @@
 using ClubReportHub.Shared.Auth;
-using Ocelot.DependencyInjection;
-using Ocelot.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration
-    .AddJsonFile("ocelot.json", optional: false, reloadOnChange: true)
-    .AddJsonFile($"ocelot.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
+    .AddJsonFile("yarp.json", optional: false, reloadOnChange: true)
+    .AddJsonFile($"yarp.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
 builder.Services.AddClubReportJwt(builder.Configuration);
 builder.Services.AddCors(options =>
 {
@@ -15,7 +13,8 @@ builder.Services.AddCors(options =>
 });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Services.AddOcelot(builder.Configuration);
+builder.Services.AddReverseProxy()
+    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
@@ -27,7 +26,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapHealthChecks("/health");
-app.MapGet("/", () => Results.Ok(new { service = "API Gateway", status = "running" }));
+app.MapGet("/", () => Results.Ok(new { service = "YARP API Gateway", status = "running" }));
 
-await app.UseOcelot();
+app.MapReverseProxy();
+
 await app.RunAsync();

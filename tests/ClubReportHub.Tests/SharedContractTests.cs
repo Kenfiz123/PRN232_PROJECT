@@ -33,9 +33,15 @@ public sealed class SharedContractTests
         var keys = new[]
         {
             EventRoutingKeys.ClubCreated,
+            EventRoutingKeys.UserRegistered,
+            EventRoutingKeys.ActivityCreated,
             EventRoutingKeys.ReportSubmitted,
             EventRoutingKeys.ReportApproved,
             EventRoutingKeys.ReportRejected,
+            EventRoutingKeys.KpiCalculated,
+            EventRoutingKeys.BudgetProposalSubmitted,
+            EventRoutingKeys.BudgetApproved,
+            EventRoutingKeys.SettlementOverdue,
             EventRoutingKeys.ExportRequested,
             EventRoutingKeys.ExportCompleted,
             EventRoutingKeys.ReportDeadlineReminder

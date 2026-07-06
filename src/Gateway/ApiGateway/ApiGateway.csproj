@@ -8,13 +8,13 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.18" />
-    <PackageReference Include="Ocelot" Version="23.4.3" />
+    <PackageReference Include="Yarp.ReverseProxy" Version="2.2.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>
 
   <ItemGroup>
-    <Content Update="ocelot.json" CopyToOutputDirectory="PreserveNewest" />
-    <Content Update="ocelot.Development.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="yarp.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="yarp.Development.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

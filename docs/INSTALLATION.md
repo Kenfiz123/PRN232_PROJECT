@@ -35,6 +35,8 @@
 | Report Service | `http://localhost:5103/swagger` |
 | Export Service | `http://localhost:5104/swagger` |
 | Notification Service | `http://localhost:5105/swagger` |
+| Activity Service | `http://localhost:5106/swagger` |
+| Finance Service | `http://localhost:5107/swagger` |
 | RabbitMQ Management | `http://localhost:15672` |
 | SQL Server | `localhost,14333` |
 

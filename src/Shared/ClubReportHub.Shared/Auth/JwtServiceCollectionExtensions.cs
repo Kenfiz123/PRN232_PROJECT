@@ -34,9 +34,29 @@ public static class JwtServiceCollectionExtensions
 
         services.AddAuthorization(options =>
         {
-            options.AddPolicy(AuthPolicies.AdminOnly, policy => policy.RequireRole(AuthRoles.Admin));
+            var adminRoles = new[] { AuthRoles.Admin, AuthRoles.SystemAdmin, AuthRoles.StudentAffairsAdmin };
+            options.AddPolicy(AuthPolicies.AdminOnly, policy => policy.RequireRole(adminRoles));
             options.AddPolicy(AuthPolicies.ClubManagerOnly, policy => policy.RequireRole(AuthRoles.ClubManager));
-            options.AddPolicy(AuthPolicies.AdminOrClubManager, policy => policy.RequireRole(AuthRoles.Admin, AuthRoles.ClubManager));
+            options.AddPolicy(AuthPolicies.TreasurerOnly, policy => policy.RequireRole(AuthRoles.Treasurer));
+            options.AddPolicy(AuthPolicies.ClubMemberOnly, policy => policy.RequireRole(AuthRoles.ClubMember));
+            options.AddPolicy(AuthPolicies.AdminOrClubManager, policy => policy.RequireRole(
+                AuthRoles.Admin,
+                AuthRoles.SystemAdmin,
+                AuthRoles.StudentAffairsAdmin,
+                AuthRoles.ClubManager));
+            options.AddPolicy(AuthPolicies.AdminOrClubManagerOrMember, policy => policy.RequireRole(
+                AuthRoles.Admin,
+                AuthRoles.SystemAdmin,
+                AuthRoles.StudentAffairsAdmin,
+                AuthRoles.ClubManager,
+                AuthRoles.Treasurer,
+                AuthRoles.ClubMember));
+            options.AddPolicy(AuthPolicies.ClubManagerOrTreasurer, policy => policy.RequireRole(
+                AuthRoles.Admin,
+                AuthRoles.SystemAdmin,
+                AuthRoles.StudentAffairsAdmin,
+                AuthRoles.ClubManager,
+                AuthRoles.Treasurer));
         });
 
         services.AddSingleton<JwtTokenFactory>();

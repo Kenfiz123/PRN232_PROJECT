@@ -48,10 +48,16 @@ public sealed class RabbitMqNotificationConsumer(
 
             foreach (var key in new[]
             {
+                EventRoutingKeys.UserRegistered,
                 EventRoutingKeys.ClubCreated,
+                EventRoutingKeys.ActivityCreated,
                 EventRoutingKeys.ReportSubmitted,
                 EventRoutingKeys.ReportApproved,
                 EventRoutingKeys.ReportRejected,
+                EventRoutingKeys.KpiCalculated,
+                EventRoutingKeys.BudgetProposalSubmitted,
+                EventRoutingKeys.BudgetApproved,
+                EventRoutingKeys.SettlementOverdue,
                 EventRoutingKeys.ExportCompleted,
                 EventRoutingKeys.ReportDeadlineReminder
             })
@@ -127,6 +133,20 @@ public sealed class RabbitMqNotificationConsumer(
                 Title = "New club created",
                 Message = $"{GetString(root, "clubName")} ({GetString(root, "clubCode")}) is now available."
             },
+            EventRoutingKeys.UserRegistered => new Notification
+            {
+                RecipientUserId = GetInt(root, "userId"),
+                EventType = routingKey,
+                Title = "Welcome to FCMRH",
+                Message = $"Welcome {GetString(root, "fullName")}. Your club account is ready."
+            },
+            EventRoutingKeys.ActivityCreated => new Notification
+            {
+                RecipientRole = AuthRoles.ClubMember,
+                EventType = routingKey,
+                Title = "New club activity",
+                Message = $"{GetString(root, "clubName")} scheduled {GetString(root, "title")}."
+            },
             EventRoutingKeys.ReportSubmitted => new Notification
             {
                 RecipientRole = AuthRoles.Admin,
@@ -147,6 +167,34 @@ public sealed class RabbitMqNotificationConsumer(
                 EventType = routingKey,
                 Title = "Report rejected",
                 Message = $"{GetString(root, "clubName")} report {GetString(root, "period")} needs revision: {GetString(root, "feedback")}"
+            },
+            EventRoutingKeys.KpiCalculated => new Notification
+            {
+                RecipientRole = AuthRoles.ClubManager,
+                EventType = routingKey,
+                Title = "KPI calculated",
+                Message = $"{GetString(root, "clubName")} KPI for {GetString(root, "period")} is {GetString(root, "points")} points."
+            },
+            EventRoutingKeys.BudgetProposalSubmitted => new Notification
+            {
+                RecipientRole = AuthRoles.StudentAffairsAdmin,
+                EventType = routingKey,
+                Title = "Budget proposal submitted",
+                Message = $"{GetString(root, "clubName")} requested {GetString(root, "requestedAmount")} VND."
+            },
+            EventRoutingKeys.BudgetApproved => new Notification
+            {
+                RecipientRole = AuthRoles.Treasurer,
+                EventType = routingKey,
+                Title = "Budget approved",
+                Message = $"{GetString(root, "clubName")} budget was approved for {GetString(root, "approvedAmount")} VND."
+            },
+            EventRoutingKeys.SettlementOverdue => new Notification
+            {
+                RecipientRole = AuthRoles.Treasurer,
+                EventType = routingKey,
+                Title = "Settlement overdue",
+                Message = $"{GetString(root, "clubName")} has an overdue settlement for proposal #{GetString(root, "proposalId")}."
             },
             EventRoutingKeys.ExportCompleted => new Notification
             {

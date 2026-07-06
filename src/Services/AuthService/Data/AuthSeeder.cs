@@ -10,7 +10,11 @@ public static class AuthSeeder
     public static async Task SeedAsync(AuthDbContext db, IPasswordHasher<User> passwordHasher)
     {
         await EnsureRoleAsync(db, AuthRoles.Admin);
+        await EnsureRoleAsync(db, AuthRoles.SystemAdmin);
+        await EnsureRoleAsync(db, AuthRoles.StudentAffairsAdmin);
         await EnsureRoleAsync(db, AuthRoles.ClubManager);
+        await EnsureRoleAsync(db, AuthRoles.Treasurer);
+        await EnsureRoleAsync(db, AuthRoles.ClubMember);
         await db.SaveChangesAsync();
 
         await EnsureUserAsync(
@@ -30,6 +34,33 @@ public static class AuthSeeder
             email: "manager@club.local",
             password: "Manager@12345",
             roles: [AuthRoles.ClubManager]);
+
+        await EnsureUserAsync(
+            db,
+            passwordHasher,
+            username: "studentaffairs@club.local",
+            fullName: "Student Affairs Admin",
+            email: "studentaffairs@club.local",
+            password: "Admin@12345",
+            roles: [AuthRoles.StudentAffairsAdmin]);
+
+        await EnsureUserAsync(
+            db,
+            passwordHasher,
+            username: "treasurer@club.local",
+            fullName: "Demo Club Treasurer",
+            email: "treasurer@club.local",
+            password: "Treasurer@12345",
+            roles: [AuthRoles.Treasurer]);
+
+        await EnsureUserAsync(
+            db,
+            passwordHasher,
+            username: "student@club.local",
+            fullName: "Demo Club Member",
+            email: "student@club.local",
+            password: "Student@12345",
+            roles: [AuthRoles.ClubMember]);
 
         await db.SaveChangesAsync();
     }

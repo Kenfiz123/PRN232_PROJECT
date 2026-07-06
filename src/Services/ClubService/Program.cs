@@ -32,7 +32,7 @@ app.UseAuthorization();
 app.MapHealthChecks("/health");
 app.MapGet("/", () => Results.Ok(new { service = "Club Service", status = "running" }));
 
-var clubs = app.MapGroup("/api/clubs").WithTags("Clubs").RequireAuthorization(AuthPolicies.AdminOrClubManager);
+var clubs = app.MapGroup("/api/clubs").WithTags("Clubs").RequireAuthorization(AuthPolicies.AdminOrClubManagerOrMember);
 
 clubs.MapGet("/", async (string? search, bool? active, ClubDbContext db) =>
 {

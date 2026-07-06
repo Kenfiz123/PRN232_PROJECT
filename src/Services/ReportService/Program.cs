@@ -142,6 +142,65 @@ reports.MapGet("/aggregate", async (string? period, ReportDbContext db) =>
         clubs));
 });
 
+var kpis = app.MapGroup("/api/kpis").WithTags("KPI").RequireAuthorization(AuthPolicies.AdminOrClubManagerOrMember);
+kpis.MapGet("/rules", () => Results.Ok(new[]
+{
+    new KpiRuleResponse("APPROVED_REPORT", "Approved report", 50, "Each approved period report adds KPI points."),
+    new KpiRuleResponse("ACTIVITY", "Reported activity", 5, "Each approved activity detail contributes operational KPI."),
+    new KpiRuleResponse("PARTICIPATION", "Participant engagement", 0.1m, "Each participant in approved activities contributes 0.1 point."),
+    new KpiRuleResponse("REJECTED_REPORT", "Rejected report penalty", -10, "Rejected reports reduce KPI until revised and approved."),
+    new KpiRuleResponse("OVERDUE_REPORT", "Overdue report penalty", -20, "Draft or rejected reports past due date reduce KPI.")
+}));
+
+kpis.MapGet("/leaderboard", async (string? period, ReportDbContext db) =>
+{
+    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var query = db.Reports.Include(x => x.Details).AsQueryable();
+    if (!string.IsNullOrWhiteSpace(period))
+    {
+        query = query.Where(x => x.Period == period);
+    }
+
+    var reportsForKpi = await query.ToListAsync();
+    var ranked = reportsForKpi
+        .GroupBy(x => new { x.ClubId, x.ClubName })
+        .Select(group =>
+        {
+            var approved = group.Where(x => x.Status == ReportStatuses.Approved).ToArray();
+            var rejectedCount = group.Count(x => x.Status == ReportStatuses.Rejected);
+            var overdueCount = group.Count(x => (x.Status == ReportStatuses.Draft || x.Status == ReportStatuses.Rejected) && x.DueDate < today);
+            var activityCount = approved.Sum(x => x.Details.Count);
+            var participants = approved.Sum(x => x.Details.Sum(d => d.ParticipantCount));
+            var points = approved.Length * 50m + activityCount * 5m + participants * 0.1m - rejectedCount * 10m - overdueCount * 20m;
+            return new
+            {
+                group.Key.ClubId,
+                group.Key.ClubName,
+                Points = Math.Max(0, decimal.Round(points, 2)),
+                ApprovedReports = approved.Length,
+                Activities = activityCount,
+                Participants = participants,
+                RejectedReports = rejectedCount,
+                OverdueReports = overdueCount
+            };
+        })
+        .OrderByDescending(x => x.Points)
+        .ThenBy(x => x.ClubName)
+        .Select((row, index) => new KpiLeaderboardRow(
+            index + 1,
+            row.ClubId,
+            row.ClubName,
+            row.Points,
+            row.ApprovedReports,
+            row.Activities,
+            row.Participants,
+            row.RejectedReports,
+            row.OverdueReports))
+        .ToArray();
+
+    return Results.Ok(new KpiLeaderboardResponse(period, DateTimeOffset.UtcNow, ranked));
+});
+
 reports.MapGet("/{id:int}", async (int id, ReportDbContext db) =>
 {
     var report = await db.Reports

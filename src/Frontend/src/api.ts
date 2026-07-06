@@ -1,4 +1,4 @@
-export type Role = "ADMIN" | "CLUB_MANAGER";
+export type Role = "ADMIN" | "SYSTEM_ADMIN" | "STUDENT_AFFAIRS_ADMIN" | "CLUB_MANAGER" | "TREASURER" | "CLUB_MEMBER";
 
 export type UserSummary = {
   id: number;
@@ -87,6 +87,68 @@ export type ReportSummary = {
   overdue: number;
 };
 
+export type KpiLeaderboard = {
+  period?: string;
+  calculatedAtUtc: string;
+  clubs: Array<{
+    rank: number;
+    clubId: number;
+    clubName: string;
+    points: number;
+    approvedReports: number;
+    activities: number;
+    participants: number;
+    rejectedReports: number;
+    overdueReports: number;
+  }>;
+};
+
+export type ActivityItem = {
+  id: number;
+  clubId: number;
+  clubName: string;
+  title: string;
+  description: string;
+  startTimeUtc: string;
+  endTimeUtc: string;
+  location: string;
+  status: string;
+  createdByUserId: number;
+  createdAtUtc: string;
+  participants: Array<{
+    id: number;
+    userId: number;
+    fullName: string;
+    attendanceStatus: string;
+    registeredAtUtc: string;
+  }>;
+};
+
+export type BudgetProposal = {
+  id: number;
+  clubId: number;
+  clubName: string;
+  activityId?: number;
+  title: string;
+  description: string;
+  requestedAmount: number;
+  approvedAmount?: number;
+  status: string;
+  proposedByUserId: number;
+  proposedAtUtc: string;
+  reviewedByUserId?: number;
+  reviewedAtUtc?: string;
+  reviewNote?: string;
+  settlements: Array<{
+    id: number;
+    budgetProposalId: number;
+    totalSpent: number;
+    receiptUrl: string;
+    status: string;
+    submittedAtUtc: string;
+  }>;
+};
+
 export type ExportRequest = {
   id: number;
   exportType: string;
@@ -142,6 +204,30 @@ export class ApiClient {
 
   async getSummary() {
     return this.request<ReportSummary>("/api/reports/summary");
+  }
+
+  async getKpiLeaderboard(period?: string) {
+    const query = period ? `?period=${encodeURIComponent(period)}` : "";
+    return this.request<KpiLeaderboard>(`/api/kpis/leaderboard${query}`);
+  }
+
+  async getActivities() {
+    return this.request<ActivityItem[]>("/api/activities/");
+  }
+
+  async createActivity(payload: {
+    clubId: number;
+    clubName: string;
+    title: string;
+    description: string;
+    startTimeUtc: string;
+    endTimeUtc: string;
+    location: string;
+  }) {
+    return this.request<ActivityItem>("/api/activities/", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
   }
 
   async createReport(payload: {
@@ -209,9 +295,36 @@ export class ApiClient {
     });
   }
 
+  async getBudgetProposals() {
+    return this.request<BudgetProposal[]>("/api/finance/proposals");
+  }
+
+  async createBudgetProposal(payload: {
+    clubId: number;
+    clubName: string;
+    activityId?: number;
+    title: string;
+    description: string;
+    requestedAmount: number;
+  }) {
+    return this.request<BudgetProposal>("/api/finance/proposals", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async approveBudgetProposal(id: number, approvedAmount?: number) {
+    return this.request<BudgetProposal>(`/api/finance/proposals/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ approvedAmount, note: "Approved from Student Affairs dashboard." })
+    });
+  }
+
   async getNotifications(user: UserSummary) {
-    const role = user.roles.includes("ADMIN") ? "ADMIN" : "CLUB_MANAGER";
-    const query = user.roles.includes("ADMIN")
+    const role = user.roles.find((item) => item === "ADMIN" || item === "STUDENT_AFFAIRS_ADMIN" || item === "SYSTEM_ADMIN")
+      ?? user.roles[0]
+      ?? "CLUB_MEMBER";
+    const query = role === "ADMIN" || role === "STUDENT_AFFAIRS_ADMIN" || role === "SYSTEM_ADMIN"
       ? `recipientRole=${role}`
       : `recipientUserId=${user.id}&recipientRole=${role}`;
     return this.request<NotificationItem[]>(`/api/notifications/?${query}`);

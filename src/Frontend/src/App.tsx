@@ -1,21 +1,29 @@
 import {
+  ArrowUpRight,
   Bell,
   Building2,
   CalendarDays,
   CheckCircle2,
+  CircleDollarSign,
+  ClipboardCheck,
+  Clock3,
   Download,
   FileSpreadsheet,
   FileText,
   Gauge,
+  Layers3,
   LogIn,
   LogOut,
+  Megaphone,
   Paperclip,
   RefreshCcw,
   Send,
   ShieldCheck,
+  Sparkles,
   Trophy,
   Upload,
   UserRoundCog,
+  UsersRound,
   WalletCards,
   XCircle
 } from "lucide-react";
@@ -334,7 +342,9 @@ export default function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-row">
-          <Building2 size={26} aria-hidden />
+          <div className="brand-icon">
+            <Building2 size={24} aria-hidden />
+          </div>
           <div>
             <strong>FPTU Club</strong>
             <span>Management Hub</span>
@@ -350,6 +360,11 @@ export default function App() {
           <NavButton icon={<FileSpreadsheet />} label="Exports" active={view === "exports"} onClick={() => setView("exports")} />
           <NavButton icon={<Bell />} label="Notifications" active={view === "notifications"} onClick={() => setView("notifications")} />
         </nav>
+        <div className="sidebar-card">
+          <span><ShieldCheck size={14} aria-hidden /> Signed in</span>
+          <strong>{auth.user.fullName}</strong>
+          <small>{auth.user.roles[0]}</small>
+        </div>
         <button className="ghost logout" type="button" onClick={logout}>
           <LogOut size={18} aria-hidden />
           Sign out
@@ -358,22 +373,27 @@ export default function App() {
 
       <main className="workspace">
         <header className="topbar">
-          <div>
+          <div className="page-title">
+            <span className="workspace-label"><span className="status-dot" /> Live workspace</span>
             <h1>{viewLabel(view)}</h1>
-            <p>
-              <span>{auth.user.fullName}</span>
-              <span className="role-pill">{auth.user.roles.join(", ")}</span>
-            </p>
+            <p>{viewSubtitle(view)}</p>
           </div>
-          <button className="secondary" type="button" onClick={refreshAll} disabled={busy} title="Refresh dashboard data">
-            <RefreshCcw className={busy ? "spin" : undefined} size={18} aria-hidden />
-            Refresh
-          </button>
+          <div className="topbar-actions">
+            <span className="user-chip">
+              <UserRoundCog size={17} aria-hidden />
+              {auth.user.fullName}
+              <span className="role-pill">{auth.user.roles.join(", ")}</span>
+            </span>
+            <button className="secondary" type="button" onClick={refreshAll} disabled={busy} title="Refresh dashboard data">
+              <RefreshCcw className={busy ? "spin" : undefined} size={18} aria-hidden />
+              Refresh
+            </button>
+          </div>
         </header>
 
         {error && <div className="alert">{error}</div>}
         <div className="view-frame" key={view}>
-          {view === "dashboard" && <Dashboard summary={summary} reports={reports} notifications={notifications} kpi={kpi} activities={activities} budgetProposals={budgetProposals} />}
+          {view === "dashboard" && <Dashboard summary={summary} reports={reports} notifications={notifications} kpi={kpi} activities={activities} budgetProposals={budgetProposals} onNavigate={setView} />}
           {view === "reports" && (
             <ReportsView
               reports={reports}
@@ -429,7 +449,8 @@ function Dashboard({
   notifications,
   kpi,
   activities,
-  budgetProposals
+  budgetProposals,
+  onNavigate
 }: {
   summary: ReportSummary | null;
   reports: Report[];
@@ -437,48 +458,107 @@ function Dashboard({
   kpi: KpiLeaderboard | null;
   activities: ActivityItem[];
   budgetProposals: BudgetProposal[];
+  onNavigate: (view: View) => void;
 }) {
   const unreadCount = notifications.filter((item) => !item.isRead).length;
   const topClub = kpi?.clubs[0];
+  const reviewCount = (summary?.submitted ?? 0) + (summary?.underReview ?? 0);
+  const approvalRate = summary?.total ? Math.round(((summary.approved ?? 0) / summary.total) * 100) : 0;
+  const nextActivity = activities[0];
   const stats = [
-    { label: "Reports", value: summary?.total ?? 0, hint: `${summary?.approved ?? 0} approved`, tone: "teal" },
-    { label: "In Review", value: (summary?.submitted ?? 0) + (summary?.underReview ?? 0), hint: "needs attention", tone: "amber" },
-    { label: "Top KPI", value: topClub?.points ?? 0, hint: topClub?.clubName ?? "No ranking yet", tone: "green" },
-    { label: "Budgets", value: budgetProposals.length, hint: `${budgetProposals.filter((item) => item.status === "Submitted").length} pending`, tone: "coral" }
+    { label: "Reports", value: summary?.total ?? 0, hint: `${summary?.approved ?? 0} approved`, tone: "teal", icon: <FileText /> },
+    { label: "In Review", value: reviewCount, hint: "needs attention", tone: "amber", icon: <ClipboardCheck /> },
+    { label: "Top KPI", value: topClub?.points ?? 0, hint: topClub?.clubName ?? "No ranking yet", tone: "green", icon: <Trophy /> },
+    { label: "Budgets", value: budgetProposals.length, hint: `${budgetProposals.filter((item) => item.status === "Submitted").length} pending`, tone: "coral", icon: <CircleDollarSign /> }
   ];
   return (
     <section className="dashboard-grid">
       <section className="hero-panel">
         <img src={clubHubHero} alt="" />
         <div className="hero-copy">
-          <span className="eyebrow">FPTU Club Operations</span>
-          <h2>Manage reports, activities, KPI, and club budgets without jumping between tools.</h2>
-          <div className="hero-pills">
-            <span>{activities.length} activities</span>
-            <span>{unreadCount} unread signals</span>
-            <span>{kpi?.period ?? "All periods"}</span>
+          <span className="eyebrow"><Sparkles size={15} aria-hidden /> FPTU Club Operations</span>
+          <h2>One clean command center for club reporting, KPI, activities, and budgets.</h2>
+          <p>Track what needs attention, move reports through approval, and keep club operations visible without digging through separate tools.</p>
+          <div className="hero-actions">
+            <button className="primary" type="button" onClick={() => onNavigate("reports")}>
+              <FileText size={18} aria-hidden />
+              Review reports
+            </button>
+            <button className="secondary" type="button" onClick={() => onNavigate("activities")}>
+              <CalendarDays size={18} aria-hidden />
+              Activities
+            </button>
           </div>
         </div>
+        <div className="hero-meter" aria-label="Approval progress">
+          <span>Approval rate</span>
+          <strong>{approvalRate}%</strong>
+          <div className="progress-track"><i style={{ width: `${approvalRate}%` }} /></div>
+          <small>{reviewCount} report{reviewCount === 1 ? "" : "s"} still waiting</small>
+        </div>
       </section>
+
       <div className="stat-band">
         {stats.map((stat) => (
           <div className={`stat ${stat.tone}`} key={stat.label}>
-            <span>{stat.label}</span>
-            <strong>{stat.value}</strong>
-            <small>{stat.hint}</small>
+            <span className="stat-icon">{stat.icon}</span>
+            <div>
+              <span>{stat.label}</span>
+              <strong>{stat.value}</strong>
+              <small>{stat.hint}</small>
+            </div>
           </div>
         ))}
       </div>
+
+      <section className="quick-actions" aria-label="Quick actions">
+        <button type="button" onClick={() => onNavigate("reports")}>
+          <span><ClipboardCheck size={18} aria-hidden /></span>
+          <strong>Reports</strong>
+          <small>{reviewCount} pending</small>
+          <ArrowUpRight size={16} aria-hidden />
+        </button>
+        <button type="button" onClick={() => onNavigate("kpi")}>
+          <span><Trophy size={18} aria-hidden /></span>
+          <strong>KPI</strong>
+          <small>{topClub?.clubName ?? "No ranking"}</small>
+          <ArrowUpRight size={16} aria-hidden />
+        </button>
+        <button type="button" onClick={() => onNavigate("finance")}>
+          <span><WalletCards size={18} aria-hidden /></span>
+          <strong>Finance</strong>
+          <small>{budgetProposals.filter((item) => item.status === "Submitted").length} pending</small>
+          <ArrowUpRight size={16} aria-hidden />
+        </button>
+        <button type="button" onClick={() => onNavigate("notifications")}>
+          <span><Megaphone size={18} aria-hidden /></span>
+          <strong>Signals</strong>
+          <small>{unreadCount} unread</small>
+          <ArrowUpRight size={16} aria-hidden />
+        </button>
+      </section>
+
       <section className="panel panel-large">
-        <h2>Recent Reports</h2>
+        <SectionTitle icon={<FileText />} title="Recent Reports" meta={`${reports.length} loaded`} />
         <ReportList reports={reports.slice(0, 6)} />
       </section>
-      <section className="panel">
-        <h2>Unread Signals</h2>
-        <NotificationList notifications={notifications.filter((item) => !item.isRead).slice(0, 6)} />
+      <section className="panel insight-panel">
+        <SectionTitle icon={<Trophy />} title="Top Club" meta={kpi?.period ?? "All periods"} />
+        {topClub ? (
+          <div className="top-club-card">
+            <span>#{topClub.rank}</span>
+            <strong>{topClub.clubName}</strong>
+            <div className="progress-track"><i style={{ width: `${Math.min(100, topClub.points)}%` }} /></div>
+            <small>{topClub.points} points - {topClub.participants} participants</small>
+          </div>
+        ) : (
+          <p className="empty">No KPI data loaded.</p>
+        )}
+        <SectionTitle icon={<Bell />} title="Unread Signals" meta={`${unreadCount} open`} />
+        <NotificationList notifications={notifications.filter((item) => !item.isRead).slice(0, 4)} />
       </section>
       <section className="panel">
-        <h2>Upcoming Activities</h2>
+        <SectionTitle icon={<CalendarDays />} title="Upcoming Activities" meta={nextActivity ? new Date(nextActivity.startTimeUtc).toLocaleDateString() : "No activity"} />
         <ActivityList activities={activities.slice(0, 5)} />
       </section>
     </section>
@@ -505,41 +585,44 @@ function ReportsView(props: {
   }
 
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <h2>Report Workflow</h2>
+    <section className="surface">
+      <div className="surface-head">
+        <div>
+          <span className="section-kicker"><ClipboardCheck size={15} aria-hidden /> Workflow</span>
+          <h2>Report Workflow</h2>
+          <p>{props.reports.length} reports across draft, review, and approval states.</p>
+        </div>
         <button className="primary" type="button" onClick={props.createDemoReport} disabled={props.busy} title="Create a demo draft report">
           <FileText size={18} aria-hidden />
           New report
         </button>
       </div>
-      <div className="feedback-row">
+      <div className="feedback-row inline-field">
         <label>
           Rejection feedback
           <input value={props.feedback} onChange={(event) => props.setFeedback(event.target.value)} />
         </label>
       </div>
-      <div className="report-table workflow-table" role="table" aria-label="Reports">
-        <div className="table-row table-head" role="row">
-          <span>Club</span>
-          <span>Period</span>
-          <span>Status</span>
-          <span>Activities</span>
-          <span>Evidence</span>
-          <span>Actions</span>
-        </div>
-        {props.reports.map((report) => (
-          <div className="table-row" role="row" key={report.id}>
-            <span>{report.clubName}</span>
-            <span>{report.period}</span>
-            <span><StatusBadge status={report.status} /></span>
-            <span>{report.details.length}</span>
-            <span className="evidence-cell" title={report.attachments.map((attachment) => attachment.fileName).join(", ")}>
-              <Paperclip size={15} aria-hidden />
-              {report.attachments.length}
-              {report.attachments[0] && <small>{report.attachments[0].fileName}</small>}
-            </span>
-            <span className="actions">
+      {props.reports.length === 0 ? (
+        <p className="empty">No reports loaded.</p>
+      ) : (
+        <div className="report-board" aria-label="Reports">
+          {props.reports.map((report) => (
+            <article className={`report-card ${statusTone[report.status]}`} key={report.id}>
+            <div className="report-card-head">
+              <div>
+                <span>{report.period}</span>
+                <h3>{report.clubName}</h3>
+              </div>
+              <StatusBadge status={report.status} />
+            </div>
+            <div className="report-meta">
+              <span><CalendarDays size={15} aria-hidden /> Due {new Date(report.dueDate).toLocaleDateString()}</span>
+              <span><Layers3 size={15} aria-hidden /> {report.details.length} activities</span>
+              <span><Paperclip size={15} aria-hidden /> {report.attachments.length} evidence</span>
+            </div>
+            <p>{report.details[0]?.outcome ?? "No outcome recorded yet."}</p>
+            <div className="report-actions">
               <label className="icon-upload" title="Upload evidence">
                 <Upload size={16} aria-hidden />
                 <span className="sr-only">Upload evidence</span>
@@ -554,59 +637,76 @@ function ReportsView(props: {
                 />
               </label>
               {(report.status === "Draft" || report.status === "Rejected") && (
-                <button type="button" onClick={() => props.submit(report.id)} title="Submit report">
+                <button type="button" onClick={() => props.submit(report.id)} title="Submit report" disabled={props.busy}>
                   <Send size={16} aria-hidden />
                 </button>
               )}
               {props.isAdmin && report.status === "Submitted" && (
-                <button type="button" onClick={() => props.review(report.id)} title="Mark under review">
+                <button type="button" onClick={() => props.review(report.id)} title="Mark under review" disabled={props.busy}>
                   <RefreshCcw size={16} aria-hidden />
                 </button>
               )}
               {props.isAdmin && (report.status === "Submitted" || report.status === "Under Review") && (
                 <>
-                  <button type="button" onClick={() => props.approve(report.id)} title="Approve report">
+                  <button type="button" onClick={() => props.approve(report.id)} title="Approve report" disabled={props.busy}>
                     <CheckCircle2 size={16} aria-hidden />
                   </button>
-                  <button type="button" onClick={() => props.reject(report.id)} title="Reject report">
+                  <button type="button" onClick={() => props.reject(report.id)} title="Reject report" disabled={props.busy}>
                     <XCircle size={16} aria-hidden />
                   </button>
                 </>
               )}
-            </span>
-          </div>
-        ))}
-      </div>
+            </div>
+            </article>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
 function ClubsView({ clubs }: { clubs: Club[] }) {
   return (
-    <section className="list-grid">
-      {clubs.map((club) => (
-        <article className="item-card" key={club.id}>
-          <div className="item-title">
-            <strong>{club.name}</strong>
-            <span>{club.code}</span>
-          </div>
-          <p>{club.description}</p>
-          <dl>
-            <div><dt>Email</dt><dd>{club.contactEmail}</dd></div>
-            <div><dt>Phone</dt><dd>{club.contactPhone}</dd></div>
-            <div><dt>Manager</dt><dd>{club.managers.find((manager) => manager.isActive)?.managerName ?? "Unassigned"}</dd></div>
-          </dl>
-        </article>
-      ))}
+    <section className="surface">
+      <div className="surface-head">
+        <div>
+          <span className="section-kicker"><UsersRound size={15} aria-hidden /> Club Directory</span>
+          <h2>Active Clubs</h2>
+          <p>{clubs.length} clubs with manager and contact information.</p>
+        </div>
+      </div>
+      <div className="list-grid club-grid">
+        {clubs.map((club) => (
+          <article className="item-card club-card" key={club.id}>
+            <div className="club-card-head">
+              <span className="club-avatar">{club.code.slice(0, 2)}</span>
+              <div>
+                <strong>{club.name}</strong>
+                <small>{club.code}</small>
+              </div>
+            </div>
+            <p>{club.description}</p>
+            <dl>
+              <div><dt>Email</dt><dd>{club.contactEmail}</dd></div>
+              <div><dt>Phone</dt><dd>{club.contactPhone}</dd></div>
+              <div><dt>Manager</dt><dd>{club.managers.find((manager) => manager.isActive)?.managerName ?? "Unassigned"}</dd></div>
+            </dl>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
 
 function ActivitiesView({ activities, busy, createActivity }: { activities: ActivityItem[]; busy: boolean; createActivity: () => void }) {
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <h2>Activity Calendar</h2>
+    <section className="surface">
+      <div className="surface-head">
+        <div>
+          <span className="section-kicker"><CalendarDays size={15} aria-hidden /> Calendar</span>
+          <h2>Activity Calendar</h2>
+          <p>{activities.length} scheduled and completed club activities.</p>
+        </div>
         <button className="primary" type="button" disabled={busy} onClick={createActivity} title="Create demo activity">
           <CalendarDays size={18} aria-hidden />
           New activity
@@ -620,46 +720,54 @@ function ActivitiesView({ activities, busy, createActivity }: { activities: Acti
 function ActivityList({ activities }: { activities: ActivityItem[] }) {
   if (activities.length === 0) return <p className="empty">No activities loaded.</p>;
   return (
-    <div className="compact-list">
+    <div className="activity-list">
       {activities.map((activity) => (
-        <div key={activity.id} className="compact-row">
+        <article key={activity.id} className="activity-row">
+          <span className="activity-dot"><CalendarDays size={16} aria-hidden /></span>
           <div>
             <strong>{activity.title}</strong>
-            <span>{activity.clubName} - {new Date(activity.startTimeUtc).toLocaleString()} - {activity.location}</span>
+            <span>{activity.clubName}</span>
+          </div>
+          <div className="activity-meta">
+            <span><Clock3 size={14} aria-hidden /> {new Date(activity.startTimeUtc).toLocaleString()}</span>
+            <span>{activity.location}</span>
           </div>
           <span className={`badge ${activity.status === "Completed" ? "success" : "info"}`}>{activity.participants.length} joined</span>
-        </div>
+        </article>
       ))}
     </div>
   );
 }
 
 function KpiView({ leaderboard }: { leaderboard: KpiLeaderboard | null }) {
+  const maxPoints = leaderboard?.clubs[0]?.points || 1;
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <h2>KPI Leaderboard</h2>
+    <section className="surface">
+      <div className="surface-head">
+        <div>
+          <span className="section-kicker"><Trophy size={15} aria-hidden /> Performance</span>
+          <h2>KPI Leaderboard</h2>
+          <p>Ranking clubs by approved reports, participation, and activity performance.</p>
+        </div>
         <span className="muted-text">{leaderboard?.period ?? "All periods"}</span>
       </div>
       {(!leaderboard || leaderboard.clubs.length === 0) ? (
         <p className="empty">No KPI data loaded.</p>
       ) : (
-        <div className="report-table kpi-table" role="table" aria-label="KPI leaderboard">
-          <div className="table-row table-head" role="row">
-            <span>Rank</span>
-            <span>Club</span>
-            <span>Points</span>
-            <span>Approved</span>
-            <span>Participants</span>
-          </div>
+        <div className="leaderboard" aria-label="KPI leaderboard">
           {leaderboard.clubs.map((club) => (
-            <div className="table-row" role="row" key={club.clubId}>
-              <span>#{club.rank}</span>
-              <span>{club.clubName}</span>
-              <span><span className="badge success">{club.points}</span></span>
-              <span>{club.approvedReports}</span>
-              <span>{club.participants}</span>
-            </div>
+            <article className="rank-card" key={club.clubId}>
+              <span className="rank-number">#{club.rank}</span>
+              <div className="rank-main">
+                <strong>{club.clubName}</strong>
+                <div className="progress-track"><i style={{ width: `${Math.max(8, Math.round((club.points / maxPoints) * 100))}%` }} /></div>
+              </div>
+              <div className="rank-stats">
+                <strong>{club.points}</strong>
+                <span>{club.approvedReports} approved</span>
+                <span>{club.participants} participants</span>
+              </div>
+            </article>
           ))}
         </div>
       )}
@@ -676,9 +784,13 @@ function FinanceView(props: {
   approveProposal: (id: number, amount?: number) => void;
 }) {
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <h2>Budget Proposals</h2>
+    <section className="surface">
+      <div className="surface-head">
+        <div>
+          <span className="section-kicker"><WalletCards size={15} aria-hidden /> Finance</span>
+          <h2>Budget Proposals</h2>
+          <p>{props.proposals.length} proposals with requested amounts and settlement status.</p>
+        </div>
         {props.canManageFinance && (
           <button className="primary" type="button" disabled={props.busy} onClick={props.createProposal} title="Create demo budget proposal">
             <WalletCards size={18} aria-hidden />
@@ -689,22 +801,27 @@ function FinanceView(props: {
       {props.proposals.length === 0 ? (
         <p className="empty">No budget proposals loaded.</p>
       ) : (
-        <div className="compact-list">
+        <div className="budget-grid">
           {props.proposals.map((proposal) => (
-            <div key={proposal.id} className="compact-row finance-row">
-              <div>
+            <article key={proposal.id} className="budget-card">
+              <div className="budget-card-head">
+                <span><CircleDollarSign size={18} aria-hidden /></span>
+                <StatusBadgeLike status={proposal.status} />
+              </div>
+              <div className="budget-body">
                 <strong>{proposal.title}</strong>
-                <span>{proposal.clubName} - requested {formatCurrency(proposal.requestedAmount)} - {proposal.settlements.length} settlement</span>
+                <span>{proposal.clubName}</span>
+                <b>{formatCurrency(proposal.requestedAmount)}</b>
+                <small>{proposal.settlements.length} settlement{proposal.settlements.length === 1 ? "" : "s"}</small>
               </div>
               <div className="finance-actions">
-                <span className={`badge ${proposal.status === "Approved" || proposal.status === "Settled" ? "success" : "info"}`}>{proposal.status}</span>
                 {props.isAdmin && proposal.status === "Submitted" && (
                   <button type="button" disabled={props.busy} onClick={() => props.approveProposal(proposal.id, proposal.requestedAmount)} title="Approve budget proposal">
                     <CheckCircle2 size={16} aria-hidden />
                   </button>
                 )}
               </div>
-            </div>
+            </article>
           ))}
         </div>
       )}
@@ -714,9 +831,13 @@ function FinanceView(props: {
 
 function ExportsView({ exportsList, busy, createExport }: { exportsList: ExportRequest[]; busy: boolean; createExport: (type: "PDF" | "EXCEL") => void }) {
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <h2>Export History</h2>
+    <section className="surface">
+      <div className="surface-head">
+        <div>
+          <span className="section-kicker"><FileSpreadsheet size={15} aria-hidden /> Exports</span>
+          <h2>Export History</h2>
+          <p>{exportsList.length} generated or pending report files.</p>
+        </div>
         <div className="split-actions">
           <button type="button" onClick={() => createExport("PDF")} disabled={busy} title="Create PDF export">
             <Download size={16} aria-hidden />
@@ -728,32 +849,37 @@ function ExportsView({ exportsList, busy, createExport }: { exportsList: ExportR
           </button>
         </div>
       </div>
-      <div className="report-table" role="table" aria-label="Exports">
-        <div className="table-row table-head" role="row">
-          <span>ID</span>
-          <span>Type</span>
-          <span>Scope</span>
-          <span>Status</span>
-          <span>File</span>
+      {exportsList.length === 0 ? (
+        <p className="empty">No exports loaded.</p>
+      ) : (
+        <div className="export-grid" aria-label="Exports">
+          {exportsList.map((item) => (
+            <article className="export-card" key={item.id}>
+              <div>
+                <span className="export-type">{item.exportType}</span>
+                <strong>Export #{item.id}</strong>
+                <small>{item.scope}</small>
+              </div>
+              <StatusBadgeLike status={item.status} />
+              <span className="export-file">{item.file?.fileName ?? "Pending file"}</span>
+            </article>
+          ))}
         </div>
-        {exportsList.map((item) => (
-          <div className="table-row" role="row" key={item.id}>
-            <span>#{item.id}</span>
-            <span>{item.exportType}</span>
-            <span>{item.scope}</span>
-            <span><span className={`badge ${item.status === "Completed" ? "success" : "info"}`}>{item.status}</span></span>
-            <span>{item.file?.fileName ?? "Pending"}</span>
-          </div>
-        ))}
-      </div>
+      )}
     </section>
   );
 }
 
 function NotificationsView({ notifications, markRead }: { notifications: NotificationItem[]; markRead: (id: number) => void }) {
   return (
-    <section className="panel">
-      <h2>Notifications</h2>
+    <section className="surface">
+      <div className="surface-head">
+        <div>
+          <span className="section-kicker"><Bell size={15} aria-hidden /> Signals</span>
+          <h2>Notifications</h2>
+          <p>{notifications.filter((item) => !item.isRead).length} unread items across club workflows.</p>
+        </div>
+      </div>
       <NotificationList notifications={notifications} markRead={markRead} />
     </section>
   );
@@ -762,15 +888,16 @@ function NotificationsView({ notifications, markRead }: { notifications: Notific
 function ReportList({ reports }: { reports: Report[] }) {
   if (reports.length === 0) return <p className="empty">No reports loaded.</p>;
   return (
-    <div className="compact-list">
+    <div className="signal-list">
       {reports.map((report) => (
-        <div key={report.id} className="compact-row">
+        <article key={report.id} className="signal-row">
+          <span className="signal-icon"><FileText size={16} aria-hidden /></span>
           <div>
             <strong>{report.clubName}</strong>
             <span>{report.period} - v{report.version}</span>
           </div>
           <StatusBadge status={report.status} />
-        </div>
+        </article>
       ))}
     </div>
   );
@@ -779,9 +906,10 @@ function ReportList({ reports }: { reports: Report[] }) {
 function NotificationList({ notifications, markRead }: { notifications: NotificationItem[]; markRead?: (id: number) => void }) {
   if (notifications.length === 0) return <p className="empty">No notifications.</p>;
   return (
-    <div className="compact-list">
+    <div className="signal-list">
       {notifications.map((item) => (
-        <div key={item.id} className={`compact-row ${item.isRead ? "muted" : ""}`}>
+        <article key={item.id} className={`signal-row ${item.isRead ? "muted" : ""}`}>
+          <span className="signal-icon"><Bell size={16} aria-hidden /></span>
           <div>
             <strong>{item.title}</strong>
             <span>{item.message}</span>
@@ -791,7 +919,7 @@ function NotificationList({ notifications, markRead }: { notifications: Notifica
               <CheckCircle2 size={16} aria-hidden />
             </button>
           )}
-        </div>
+        </article>
       ))}
     </div>
   );
@@ -801,10 +929,32 @@ function StatusBadge({ status }: { status: ReportStatus }) {
   return <span className={`badge ${statusTone[status]}`}>{status}</span>;
 }
 
+function StatusBadgeLike({ status }: { status: string }) {
+  const tone = status === "Approved" || status === "Settled" || status === "Completed"
+    ? "success"
+    : status === "Rejected" || status === "Failed"
+      ? "danger"
+      : status === "Submitted" || status === "Pending"
+        ? "info"
+        : "neutral";
+
+  return <span className={`badge ${tone}`}>{status}</span>;
+}
+
+function SectionTitle({ icon, title, meta }: { icon: JSX.Element; title: string; meta?: string }) {
+  return (
+    <div className="section-title">
+      <span>{icon}</span>
+      <h2>{title}</h2>
+      {meta && <small>{meta}</small>}
+    </div>
+  );
+}
+
 function NavButton({ icon, label, active, onClick }: { icon: JSX.Element; label: string; active: boolean; onClick: () => void }) {
   return (
     <button className={active ? "nav active" : "nav"} type="button" onClick={onClick} title={label}>
-      {icon}
+      <span className="nav-icon">{icon}</span>
       {label}
     </button>
   );
@@ -824,5 +974,18 @@ function viewLabel(view: View) {
     finance: "Finance",
     exports: "Exports",
     notifications: "Notifications"
+  }[view];
+}
+
+function viewSubtitle(view: View) {
+  return {
+    dashboard: "Operational snapshot for clubs, reports, KPI, finance, and signals.",
+    reports: "Move monthly reports from draft to review, approval, or rejection.",
+    clubs: "Scan club ownership, contacts, and manager assignments.",
+    activities: "Follow scheduled work, locations, participation, and outcomes.",
+    kpi: "Compare club performance with a clearer ranking view.",
+    finance: "Review proposals, requested budgets, and settlement progress.",
+    exports: "Create and monitor consolidated PDF or Excel exports.",
+    notifications: "Resolve workflow signals before they pile up."
   }[view];
 }

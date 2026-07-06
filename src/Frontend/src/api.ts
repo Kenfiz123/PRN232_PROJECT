@@ -180,6 +180,13 @@ export type NotificationItem = {
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
+export class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 export class ApiClient {
   constructor(private token?: string) {}
 
@@ -351,7 +358,7 @@ export class ApiClient {
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(text || `Request failed with HTTP ${response.status}`);
+      throw new ApiError(response.status, text || `Request failed with HTTP ${response.status}`);
     }
 
     if (response.status === 204) {

@@ -23,6 +23,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import clubHubHero from "./assets/club-hub-hero.jpg";
 import {
   ApiClient,
+  ApiError,
   ActivityItem,
   AuthResponse,
   BudgetProposal,
@@ -45,11 +46,36 @@ const statusTone: Record<ReportStatus, string> = {
   Rejected: "danger"
 };
 
+const authStorageKey = "clubreport.auth";
+const sessionExpiredMessage = "Session expired. Please sign in again.";
+
+function isExpiredAuth(auth: AuthResponse) {
+  const expiresAt = Date.parse(auth.expiresAtUtc);
+  return Number.isNaN(expiresAt) || expiresAt <= Date.now() + 30000;
+}
+
+function readStoredAuth() {
+  const raw = localStorage.getItem(authStorageKey);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as AuthResponse;
+    if (isExpiredAuth(parsed)) {
+      localStorage.removeItem(authStorageKey);
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    localStorage.removeItem(authStorageKey);
+    return null;
+  }
+}
+
 export default function App() {
-  const [auth, setAuth] = useState<AuthResponse | null>(() => {
-    const raw = localStorage.getItem("clubreport.auth");
-    return raw ? (JSON.parse(raw) as AuthResponse) : null;
-  });
+  const [auth, setAuth] = useState<AuthResponse | null>(() => readStoredAuth());
   const [view, setView] = useState<View>("dashboard");
   const [username, setUsername] = useState("admin@club.local");
   const [password, setPassword] = useState("Admin@12345");
@@ -71,6 +97,10 @@ export default function App() {
 
   useEffect(() => {
     if (!auth) return;
+    if (isExpiredAuth(auth)) {
+      clearSession(sessionExpiredMessage);
+      return;
+    }
 
     let cancelled = false;
     setBusy(true);
@@ -78,7 +108,7 @@ export default function App() {
     loadAll(new ApiClient(auth.accessToken), auth.user)
       .catch((err) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Cannot load dashboard data.");
+          handleRequestError(err, "Cannot load dashboard data.");
         }
       })
       .finally(() => {
@@ -122,7 +152,7 @@ export default function App() {
     try {
       await loadAll(api, auth.user);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Cannot load dashboard data.");
+      handleRequestError(err, "Cannot load dashboard data.");
     } finally {
       setBusy(false);
     }
@@ -134,27 +164,42 @@ export default function App() {
     setError(null);
     try {
       const result = await new ApiClient().login(username, password);
-      localStorage.setItem("clubreport.auth", JSON.stringify(result));
+      localStorage.setItem(authStorageKey, JSON.stringify(result));
       setAuth(result);
       setView("dashboard");
-      await loadAll(new ApiClient(result.accessToken), result.user);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed.");
+      setError(err instanceof ApiError && err.status === 401 ? "Invalid username or password." : err instanceof Error ? err.message : "Login failed.");
     } finally {
       setBusy(false);
     }
   }
 
-  function logout() {
-    localStorage.removeItem("clubreport.auth");
+  function clearSession(message?: string) {
+    localStorage.removeItem(authStorageKey);
     setAuth(null);
+    setView("dashboard");
     setReports([]);
     setClubs([]);
+    setSummary(null);
     setActivities([]);
     setKpi(null);
     setBudgetProposals([]);
     setExportsList([]);
     setNotifications([]);
+    setError(message ?? null);
+  }
+
+  function handleRequestError(err: unknown, fallback: string) {
+    if (err instanceof ApiError && err.status === 401) {
+      clearSession(sessionExpiredMessage);
+      return;
+    }
+
+    setError(err instanceof Error ? err.message : fallback);
+  }
+
+  function logout() {
+    clearSession();
   }
 
   async function createDemoReport() {
@@ -227,7 +272,7 @@ export default function App() {
       await action();
       await refreshAll();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Action failed.");
+      handleRequestError(err, "Action failed.");
     } finally {
       setBusy(false);
     }

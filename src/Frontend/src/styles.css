@@ -21,6 +21,9 @@
   --red: #be123c;
   --red-soft: #ffe4ec;
   --shadow: 0 18px 42px rgba(23, 32, 51, 0.1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.2, 0.8, 0.2, 1);
   color: var(--ink);
   background: var(--page);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -63,17 +66,22 @@ button {
   background: var(--panel);
   color: var(--ink);
   cursor: pointer;
-  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+  transform: translateZ(0);
+  transition:
+    transform 240ms var(--ease-spring),
+    border-color 220ms var(--ease-out),
+    background 220ms var(--ease-out),
+    box-shadow 240ms var(--ease-out);
 }
 
 button:hover {
   border-color: #9aa9bd;
-  box-shadow: 0 10px 22px rgba(23, 32, 51, 0.09);
-  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(23, 32, 51, 0.11);
+  transform: translateY(-2px) scale(1.01);
 }
 
 button:active {
-  transform: translateY(0);
+  transform: translateY(0) scale(0.985);
 }
 
 button:disabled {
@@ -91,13 +99,14 @@ input {
   padding: 10px 12px;
   color: var(--ink);
   background: var(--panel);
-  transition: border-color 160ms ease, box-shadow 160ms ease;
+  transition: border-color 220ms var(--ease-out), box-shadow 220ms var(--ease-out), transform 220ms var(--ease-out);
 }
 
 input:focus {
   outline: none;
   border-color: var(--teal);
   box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.13);
+  transform: translateY(-1px);
 }
 
 label {
@@ -117,6 +126,11 @@ p {
 
 svg {
   flex: 0 0 auto;
+  transition: transform 240ms var(--ease-spring);
+}
+
+button:hover svg {
+  transform: translateY(-1px);
 }
 
 .primary {
@@ -145,7 +159,7 @@ svg {
   color: #9b2c1f;
   padding: 12px 14px;
   border-radius: 8px;
-  animation: viewIn 220ms ease both;
+  animation: viewIn 360ms var(--ease-out) both;
 }
 
 .login-shell {
@@ -165,7 +179,7 @@ svg {
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: var(--shadow);
-  animation: viewIn 320ms ease both;
+  animation: panelLift 620ms var(--ease-out) both;
 }
 
 .login-visual {
@@ -305,6 +319,7 @@ svg {
   border-radius: 8px;
   background: #f4f7fb;
   color: var(--teal);
+  animation: iconPop 620ms 120ms var(--ease-out) both;
 }
 
 .brand-row div:not(.brand-icon) {
@@ -328,6 +343,8 @@ nav {
 }
 
 .nav {
+  position: relative;
+  overflow: hidden;
   width: 100%;
   justify-content: flex-start;
   min-height: 44px;
@@ -336,6 +353,23 @@ nav {
   background: transparent;
   color: #bec7d5;
   font-weight: 760;
+  transition:
+    transform 240ms var(--ease-spring),
+    background 240ms var(--ease-out),
+    border-color 240ms var(--ease-out),
+    color 240ms var(--ease-out);
+}
+
+.nav::before {
+  content: "";
+  position: absolute;
+  inset: 8px auto 8px 0;
+  width: 4px;
+  border-radius: 0 999px 999px 0;
+  background: var(--teal);
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform 300ms var(--ease-out);
 }
 
 .nav:hover {
@@ -349,7 +383,11 @@ nav {
   background: #f4f7fb;
   border-color: #f4f7fb;
   color: #172033;
-  box-shadow: inset 4px 0 0 var(--teal);
+  box-shadow: 0 14px 26px rgba(0, 0, 0, 0.18);
+}
+
+.nav.active::before {
+  transform: scaleY(1);
 }
 
 .nav-icon {
@@ -357,6 +395,12 @@ nav {
   height: 28px;
   display: grid;
   place-items: center;
+  transition: transform 260ms var(--ease-spring), color 240ms var(--ease-out);
+}
+
+.nav:hover .nav-icon,
+.nav.active .nav-icon {
+  transform: scale(1.08);
 }
 
 .nav svg,
@@ -445,6 +489,7 @@ nav {
   border-radius: 50%;
   background: #22c55e;
   box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.15);
+  animation: statusPulse 2.4s var(--ease-out) infinite;
 }
 
 .topbar h1 {
@@ -495,7 +540,7 @@ nav {
 }
 
 .view-frame {
-  animation: viewIn 260ms ease both;
+  animation: viewIn 460ms var(--ease-out) both;
 }
 
 .surface,
@@ -505,6 +550,8 @@ nav {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 12px 30px rgba(23, 32, 51, 0.06);
+  transform: translateZ(0);
+  animation: panelLift 560ms var(--ease-out) both;
 }
 
 .surface {
@@ -593,10 +640,14 @@ nav {
   border-radius: 8px;
   background: #172033;
   box-shadow: var(--shadow);
+  isolation: isolate;
+  animation: heroReveal 780ms var(--ease-out) both;
 }
 
 .hero-panel img {
   filter: saturate(1.05) contrast(0.98);
+  transform: scale(1.04);
+  animation: heroDrift 18s var(--ease-smooth) infinite alternate;
 }
 
 .hero-panel::after {
@@ -615,6 +666,28 @@ nav {
   justify-content: center;
   gap: 14px;
   color: #ffffff;
+}
+
+.hero-copy > * {
+  opacity: 0;
+  transform: translateY(16px);
+  animation: heroTextIn 720ms var(--ease-out) both;
+}
+
+.hero-copy > *:nth-child(1) {
+  animation-delay: 120ms;
+}
+
+.hero-copy > *:nth-child(2) {
+  animation-delay: 210ms;
+}
+
+.hero-copy > *:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+.hero-copy > *:nth-child(4) {
+  animation-delay: 390ms;
 }
 
 .hero-copy .eyebrow {
@@ -656,6 +729,7 @@ nav {
   background: rgba(255, 255, 255, 0.14);
   color: #ffffff;
   backdrop-filter: blur(14px);
+  animation: glassIn 760ms 520ms var(--ease-out) both;
 }
 
 .hero-meter span,
@@ -682,6 +756,8 @@ nav {
   min-width: 0;
   border-radius: inherit;
   background: linear-gradient(90deg, var(--teal), #22c55e);
+  transform-origin: left center;
+  animation: progressGrow 980ms 420ms var(--ease-out) both;
 }
 
 .stat-band {
@@ -702,7 +778,13 @@ nav {
   border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 10px 24px rgba(23, 32, 51, 0.06);
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  opacity: 0;
+  transform: translateY(18px) scale(0.985);
+  animation: cardRise 620ms var(--ease-out) both;
+  transition:
+    transform 260ms var(--ease-spring),
+    box-shadow 260ms var(--ease-out),
+    border-color 260ms var(--ease-out);
 }
 
 .stat:hover,
@@ -713,9 +795,25 @@ nav {
 .rank-card:hover,
 .signal-row:hover,
 .activity-row:hover {
-  transform: translateY(-2px);
+  transform: translateY(-4px) scale(1.006);
   border-color: #b8c5d6;
-  box-shadow: 0 18px 34px rgba(23, 32, 51, 0.11);
+  box-shadow: 0 22px 42px rgba(23, 32, 51, 0.13);
+}
+
+.stat:nth-child(1) {
+  animation-delay: 80ms;
+}
+
+.stat:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.stat:nth-child(3) {
+  animation-delay: 220ms;
+}
+
+.stat:nth-child(4) {
+  animation-delay: 290ms;
 }
 
 .stat-icon {
@@ -791,6 +889,25 @@ nav {
   row-gap: 4px;
   text-align: left;
   background: #ffffff;
+  opacity: 0;
+  transform: translateY(14px) scale(0.99);
+  animation: cardRise 560ms var(--ease-out) both;
+}
+
+.quick-actions button:nth-child(1) {
+  animation-delay: 170ms;
+}
+
+.quick-actions button:nth-child(2) {
+  animation-delay: 230ms;
+}
+
+.quick-actions button:nth-child(3) {
+  animation-delay: 290ms;
+}
+
+.quick-actions button:nth-child(4) {
+  animation-delay: 350ms;
 }
 
 .quick-actions button > span {
@@ -828,6 +945,10 @@ nav {
   align-self: center;
   justify-self: end;
   color: #7b8797;
+}
+
+.quick-actions button:hover > svg {
+  transform: translate(4px, -4px);
 }
 
 .panel-large {
@@ -883,7 +1004,73 @@ nav {
   border: 1px solid #e3e9f2;
   border-radius: 8px;
   background: var(--panel-soft);
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  opacity: 0;
+  transform: translateY(14px) scale(0.99);
+  animation: cardRise 520ms var(--ease-out) both;
+  transition:
+    transform 260ms var(--ease-spring),
+    box-shadow 260ms var(--ease-out),
+    border-color 260ms var(--ease-out);
+}
+
+.signal-row:nth-child(1),
+.activity-row:nth-child(1),
+.report-card:nth-child(1),
+.item-card:nth-child(1),
+.rank-card:nth-child(1),
+.budget-card:nth-child(1),
+.export-card:nth-child(1) {
+  animation-delay: 60ms;
+}
+
+.signal-row:nth-child(2),
+.activity-row:nth-child(2),
+.report-card:nth-child(2),
+.item-card:nth-child(2),
+.rank-card:nth-child(2),
+.budget-card:nth-child(2),
+.export-card:nth-child(2) {
+  animation-delay: 110ms;
+}
+
+.signal-row:nth-child(3),
+.activity-row:nth-child(3),
+.report-card:nth-child(3),
+.item-card:nth-child(3),
+.rank-card:nth-child(3),
+.budget-card:nth-child(3),
+.export-card:nth-child(3) {
+  animation-delay: 160ms;
+}
+
+.signal-row:nth-child(4),
+.activity-row:nth-child(4),
+.report-card:nth-child(4),
+.item-card:nth-child(4),
+.rank-card:nth-child(4),
+.budget-card:nth-child(4),
+.export-card:nth-child(4) {
+  animation-delay: 210ms;
+}
+
+.signal-row:nth-child(5),
+.activity-row:nth-child(5),
+.report-card:nth-child(5),
+.item-card:nth-child(5),
+.rank-card:nth-child(5),
+.budget-card:nth-child(5),
+.export-card:nth-child(5) {
+  animation-delay: 260ms;
+}
+
+.signal-row:nth-child(n + 6),
+.activity-row:nth-child(n + 6),
+.report-card:nth-child(n + 6),
+.item-card:nth-child(n + 6),
+.rank-card:nth-child(n + 6),
+.budget-card:nth-child(n + 6),
+.export-card:nth-child(n + 6) {
+  animation-delay: 310ms;
 }
 
 .signal-row {
@@ -978,7 +1165,13 @@ nav {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  opacity: 0;
+  transform: translateY(14px) scale(0.99);
+  animation: cardRise 520ms var(--ease-out) both;
+  transition:
+    transform 260ms var(--ease-spring),
+    box-shadow 260ms var(--ease-out),
+    border-color 260ms var(--ease-out);
 }
 
 .report-card::before {
@@ -1149,7 +1342,13 @@ nav {
   border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 8px 22px rgba(23, 32, 51, 0.05);
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  opacity: 0;
+  transform: translateY(14px) scale(0.99);
+  animation: cardRise 520ms var(--ease-out) both;
+  transition:
+    transform 260ms var(--ease-spring),
+    box-shadow 260ms var(--ease-out),
+    border-color 260ms var(--ease-out);
 }
 
 .club-card-head {
@@ -1229,7 +1428,13 @@ dd {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  opacity: 0;
+  transform: translateY(14px) scale(0.99);
+  animation: cardRise 520ms var(--ease-out) both;
+  transition:
+    transform 260ms var(--ease-spring),
+    box-shadow 260ms var(--ease-out),
+    border-color 260ms var(--ease-out);
 }
 
 .rank-number {
@@ -1279,7 +1484,13 @@ dd {
   border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 8px 22px rgba(23, 32, 51, 0.05);
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  opacity: 0;
+  transform: translateY(14px) scale(0.99);
+  animation: cardRise 520ms var(--ease-out) both;
+  transition:
+    transform 260ms var(--ease-spring),
+    box-shadow 260ms var(--ease-out),
+    border-color 260ms var(--ease-out);
 }
 
 .budget-card-head {
@@ -1329,7 +1540,13 @@ dd {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  opacity: 0;
+  transform: translateY(14px) scale(0.99);
+  animation: cardRise 520ms var(--ease-out) both;
+  transition:
+    transform 260ms var(--ease-spring),
+    box-shadow 260ms var(--ease-out),
+    border-color 260ms var(--ease-out);
 }
 
 .export-card > div {
@@ -1364,12 +1581,121 @@ dd {
 @keyframes viewIn {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(14px) scale(0.99);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes panelLift {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes cardRise {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes heroReveal {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+    filter: blur(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes heroTextIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+    filter: blur(4px);
   }
 
   to {
     opacity: 1;
     transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes glassIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.96);
+    filter: blur(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes heroDrift {
+  from {
+    transform: scale(1.04) translate3d(0, 0, 0);
+  }
+
+  to {
+    transform: scale(1.08) translate3d(-1.5%, -1.2%, 0);
+  }
+}
+
+@keyframes progressGrow {
+  from {
+    transform: scaleX(0);
+  }
+
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes statusPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.15);
+  }
+
+  50% {
+    box-shadow: 0 0 0 8px rgba(34, 197, 94, 0.04);
+  }
+}
+
+@keyframes iconPop {
+  from {
+    opacity: 0;
+    transform: scale(0.82) rotate(-5deg);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) rotate(0);
   }
 }
 
@@ -1384,8 +1710,20 @@ dd {
   *::before,
   *::after {
     animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 1ms !important;
+  }
+
+  .hero-panel img,
+  .hero-copy > *,
+  .hero-meter,
+  .progress-track i,
+  .status-dot {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
   }
 }
 

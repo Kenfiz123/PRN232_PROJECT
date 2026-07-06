@@ -20,6 +20,7 @@ import {
   XCircle
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import clubHubHero from "./assets/club-hub-hero.jpg";
 import {
   ApiClient,
   ActivityItem,
@@ -235,44 +236,49 @@ export default function App() {
   if (!auth) {
     return (
       <main className="login-shell">
-        <section className="login-panel" aria-label="Login">
-          <div className="brand-mark">
-            <Building2 size={28} aria-hidden />
+        <section className="login-card" aria-label="Login">
+          <div className="login-visual">
+            <img src={clubHubHero} alt="" />
+            <div>
+              <span>FPTU Club Hub</span>
+              <strong>Reports, KPI, activities, and finance in one place.</strong>
+            </div>
           </div>
-          <h1>FPTU Club Hub</h1>
-          <p>Club management, reporting, KPI, and finance workspace.</p>
-          <form onSubmit={handleLogin} className="login-form">
-            <label>
-              Username
-              <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
-            </label>
-            <label>
-              Password
-              <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" />
-            </label>
-            {error && <div className="alert">{error}</div>}
-            <button className="primary" type="submit" disabled={busy}>
-              <LogIn size={18} aria-hidden />
-              Sign in
-            </button>
-          </form>
-          <div className="demo-row">
-            <button type="button" onClick={() => { setUsername("admin@club.local"); setPassword("Admin@12345"); }}>
-              <ShieldCheck size={16} aria-hidden />
-              Admin
-            </button>
-            <button type="button" onClick={() => { setUsername("manager@club.local"); setPassword("Manager@12345"); }}>
-              <UserRoundCog size={16} aria-hidden />
-              Manager
-            </button>
-            <button type="button" onClick={() => { setUsername("treasurer@club.local"); setPassword("Treasurer@12345"); }}>
-              <WalletCards size={16} aria-hidden />
-              Treasurer
-            </button>
-            <button type="button" onClick={() => { setUsername("student@club.local"); setPassword("Student@12345"); }}>
-              <CalendarDays size={16} aria-hidden />
-              Student
-            </button>
+          <div className="login-panel">
+            <div className="brand-mark">
+              <Building2 size={28} aria-hidden />
+            </div>
+            <h1>FPTU Club Hub</h1>
+            <p>Club management, reporting, KPI, and finance workspace.</p>
+            <form onSubmit={handleLogin} className="login-form">
+              <label>
+                Username
+                <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
+              </label>
+              <label>
+                Password
+                <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" />
+              </label>
+              {error && <div className="alert">{error}</div>}
+              <button className="primary" type="submit" disabled={busy}>
+                <LogIn size={18} aria-hidden />
+                Sign in
+              </button>
+            </form>
+            <div className="demo-row" aria-label="Demo accounts">
+              <button type="button" onClick={() => { setUsername("admin@club.local"); setPassword("Admin@12345"); }}>
+                Admin
+              </button>
+              <button type="button" onClick={() => { setUsername("manager@club.local"); setPassword("Manager@12345"); }}>
+                Manager
+              </button>
+              <button type="button" onClick={() => { setUsername("treasurer@club.local"); setPassword("Treasurer@12345"); }}>
+                Treasurer
+              </button>
+              <button type="button" onClick={() => { setUsername("student@club.local"); setPassword("Student@12345"); }}>
+                Student
+              </button>
+            </div>
           </div>
         </section>
       </main>
@@ -309,59 +315,64 @@ export default function App() {
         <header className="topbar">
           <div>
             <h1>{viewLabel(view)}</h1>
-            <p>{auth.user.fullName} - {auth.user.roles.join(", ")}</p>
+            <p>
+              <span>{auth.user.fullName}</span>
+              <span className="role-pill">{auth.user.roles.join(", ")}</span>
+            </p>
           </div>
           <button className="secondary" type="button" onClick={refreshAll} disabled={busy} title="Refresh dashboard data">
-            <RefreshCcw size={18} aria-hidden />
+            <RefreshCcw className={busy ? "spin" : undefined} size={18} aria-hidden />
             Refresh
           </button>
         </header>
 
         {error && <div className="alert">{error}</div>}
-        {view === "dashboard" && <Dashboard summary={summary} reports={reports} notifications={notifications} kpi={kpi} activities={activities} budgetProposals={budgetProposals} />}
-        {view === "reports" && (
-          <ReportsView
-            reports={reports}
-            isAdmin={isAdmin}
-            busy={busy}
-            feedback={draftFeedback}
-            setFeedback={setDraftFeedback}
-            createDemoReport={createDemoReport}
-            submit={(id) => runAction(() => api.submitReport(id).then(() => undefined))}
-            review={(id) => runAction(() => api.reviewReport(id).then(() => undefined))}
-            approve={(id) => runAction(() => api.approveReport(id).then(() => undefined))}
-            reject={(id) => runAction(() => api.rejectReport(id, draftFeedback).then(() => undefined))}
-            uploadEvidence={uploadEvidence}
-          />
-        )}
-        {view === "clubs" && <ClubsView clubs={clubs} />}
-        {view === "activities" && (
-          <ActivitiesView activities={activities} busy={busy} createActivity={createDemoActivity} />
-        )}
-        {view === "kpi" && <KpiView leaderboard={kpi} />}
-        {view === "finance" && (
-          <FinanceView
-            proposals={budgetProposals}
-            busy={busy}
-            canManageFinance={canManageFinance}
-            isAdmin={isAdmin}
-            createProposal={createDemoBudgetProposal}
-            approveProposal={(id, amount) => runAction(() => api.approveBudgetProposal(id, amount).then(() => undefined))}
-          />
-        )}
-        {view === "exports" && (
-          <ExportsView
-            exportsList={exportsList}
-            busy={busy}
-            createExport={(type) => runAction(() => api.createExport(type, "Consolidated", "2026-07").then(() => undefined))}
-          />
-        )}
-        {view === "notifications" && (
-          <NotificationsView
-            notifications={notifications}
-            markRead={(id) => runAction(() => api.markNotificationRead(id))}
-          />
-        )}
+        <div className="view-frame" key={view}>
+          {view === "dashboard" && <Dashboard summary={summary} reports={reports} notifications={notifications} kpi={kpi} activities={activities} budgetProposals={budgetProposals} />}
+          {view === "reports" && (
+            <ReportsView
+              reports={reports}
+              isAdmin={isAdmin}
+              busy={busy}
+              feedback={draftFeedback}
+              setFeedback={setDraftFeedback}
+              createDemoReport={createDemoReport}
+              submit={(id) => runAction(() => api.submitReport(id).then(() => undefined))}
+              review={(id) => runAction(() => api.reviewReport(id).then(() => undefined))}
+              approve={(id) => runAction(() => api.approveReport(id).then(() => undefined))}
+              reject={(id) => runAction(() => api.rejectReport(id, draftFeedback).then(() => undefined))}
+              uploadEvidence={uploadEvidence}
+            />
+          )}
+          {view === "clubs" && <ClubsView clubs={clubs} />}
+          {view === "activities" && (
+            <ActivitiesView activities={activities} busy={busy} createActivity={createDemoActivity} />
+          )}
+          {view === "kpi" && <KpiView leaderboard={kpi} />}
+          {view === "finance" && (
+            <FinanceView
+              proposals={budgetProposals}
+              busy={busy}
+              canManageFinance={canManageFinance}
+              isAdmin={isAdmin}
+              createProposal={createDemoBudgetProposal}
+              approveProposal={(id, amount) => runAction(() => api.approveBudgetProposal(id, amount).then(() => undefined))}
+            />
+          )}
+          {view === "exports" && (
+            <ExportsView
+              exportsList={exportsList}
+              busy={busy}
+              createExport={(type) => runAction(() => api.createExport(type, "Consolidated", "2026-07").then(() => undefined))}
+            />
+          )}
+          {view === "notifications" && (
+            <NotificationsView
+              notifications={notifications}
+              markRead={(id) => runAction(() => api.markNotificationRead(id))}
+            />
+          )}
+        </div>
       </main>
     </div>
   );
@@ -382,23 +393,38 @@ function Dashboard({
   activities: ActivityItem[];
   budgetProposals: BudgetProposal[];
 }) {
+  const unreadCount = notifications.filter((item) => !item.isRead).length;
+  const topClub = kpi?.clubs[0];
   const stats = [
-    ["Total", summary?.total ?? 0],
-    ["Submitted", summary?.submitted ?? 0],
-    ["Top KPI", kpi?.clubs[0]?.points ?? 0],
-    ["Budgets", budgetProposals.length]
+    { label: "Reports", value: summary?.total ?? 0, hint: `${summary?.approved ?? 0} approved`, tone: "teal" },
+    { label: "In Review", value: (summary?.submitted ?? 0) + (summary?.underReview ?? 0), hint: "needs attention", tone: "amber" },
+    { label: "Top KPI", value: topClub?.points ?? 0, hint: topClub?.clubName ?? "No ranking yet", tone: "green" },
+    { label: "Budgets", value: budgetProposals.length, hint: `${budgetProposals.filter((item) => item.status === "Submitted").length} pending`, tone: "coral" }
   ];
   return (
-    <section className="grid">
+    <section className="dashboard-grid">
+      <section className="hero-panel">
+        <img src={clubHubHero} alt="" />
+        <div className="hero-copy">
+          <span className="eyebrow">FPTU Club Operations</span>
+          <h2>Manage reports, activities, KPI, and club budgets without jumping between tools.</h2>
+          <div className="hero-pills">
+            <span>{activities.length} activities</span>
+            <span>{unreadCount} unread signals</span>
+            <span>{kpi?.period ?? "All periods"}</span>
+          </div>
+        </div>
+      </section>
       <div className="stat-band">
-        {stats.map(([label, value]) => (
-          <div className="stat" key={label}>
-            <span>{label}</span>
-            <strong>{value}</strong>
+        {stats.map((stat) => (
+          <div className={`stat ${stat.tone}`} key={stat.label}>
+            <span>{stat.label}</span>
+            <strong>{stat.value}</strong>
+            <small>{stat.hint}</small>
           </div>
         ))}
       </div>
-      <section className="panel">
+      <section className="panel panel-large">
         <h2>Recent Reports</h2>
         <ReportList reports={reports.slice(0, 6)} />
       </section>

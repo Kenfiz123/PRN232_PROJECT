@@ -28,7 +28,7 @@ import {
   XCircle
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import clubHubHero from "./assets/club-hub-hero.jpg";
+import clubHubHero from "./assets/club-hub-hero-premium.webp";
 import {
   ApiClient,
   ApiError,

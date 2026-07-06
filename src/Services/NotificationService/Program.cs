@@ -33,7 +33,7 @@ app.UseAuthorization();
 app.MapHealthChecks("/health");
 app.MapGet("/", () => Results.Ok(new { service = "Notification Service", status = "running" }));
 
-var notifications = app.MapGroup("/api/notifications").WithTags("Notifications").RequireAuthorization(AuthPolicies.AdminOrClubManager);
+var notifications = app.MapGroup("/api/notifications").WithTags("Notifications").RequireAuthorization(AuthPolicies.AdminOrClubManagerOrMember);
 
 notifications.MapGet("/", async (
     int? recipientUserId,

@@ -57,6 +57,25 @@ const statusTone: Record<ReportStatus, string> = {
 
 const authStorageKey = "clubreport.auth";
 const sessionExpiredMessage = "Session expired. Please sign in again.";
+const adminRoles = ["ADMIN", "SYSTEM_ADMIN", "STUDENT_AFFAIRS_ADMIN"];
+const reportWorkflowRoles = [...adminRoles, "CLUB_MANAGER"];
+const financeWorkflowRoles = [...reportWorkflowRoles, "TREASURER"];
+
+function hasAnyRole(user: AuthResponse["user"] | null | undefined, allowedRoles: string[]) {
+  return user?.roles.some((role) => allowedRoles.includes(role)) ?? false;
+}
+
+function canAccessView(view: View, user: AuthResponse["user"]) {
+  if (view === "reports" || view === "exports") {
+    return hasAnyRole(user, reportWorkflowRoles);
+  }
+
+  if (view === "finance") {
+    return hasAnyRole(user, financeWorkflowRoles);
+  }
+
+  return true;
+}
 
 function isExpiredAuth(auth: AuthResponse) {
   const expiresAt = Date.parse(auth.expiresAtUtc);
@@ -101,8 +120,15 @@ export default function App() {
   const [draftFeedback, setDraftFeedback] = useState("Please add clearer evidence and resubmit.");
 
   const api = useMemo(() => new ApiClient(auth?.accessToken), [auth?.accessToken]);
-  const isAdmin = auth?.user.roles.some((role) => role === "ADMIN" || role === "SYSTEM_ADMIN" || role === "STUDENT_AFFAIRS_ADMIN") ?? false;
-  const canManageFinance = isAdmin || (auth?.user.roles.some((role) => role === "CLUB_MANAGER" || role === "TREASURER") ?? false);
+  const isAdmin = hasAnyRole(auth?.user, adminRoles);
+  const canUseReportWorkflow = hasAnyRole(auth?.user, reportWorkflowRoles);
+  const canUseFinanceWorkflow = hasAnyRole(auth?.user, financeWorkflowRoles);
+
+  useEffect(() => {
+    if (auth && !canAccessView(view, auth.user)) {
+      setView("dashboard");
+    }
+  }, [auth?.accessToken, view]);
 
   useEffect(() => {
     if (!auth) return;
@@ -132,16 +158,16 @@ export default function App() {
   }, [auth?.accessToken]);
 
   async function loadAll(client: ApiClient, user: AuthResponse["user"]) {
-    const canUseReportWorkflow = user.roles.some((role) => role === "ADMIN" || role === "SYSTEM_ADMIN" || role === "STUDENT_AFFAIRS_ADMIN" || role === "CLUB_MANAGER");
-    const canUseFinanceWorkflow = canUseReportWorkflow || user.roles.some((role) => role === "TREASURER");
+    const canLoadReports = hasAnyRole(user, reportWorkflowRoles);
+    const canLoadFinance = hasAnyRole(user, financeWorkflowRoles);
     const [clubRows, reportPage, reportSummary, activityRows, kpiRows, budgetRows, exportPage, notificationRows] = await Promise.all([
       client.getClubs(),
-      canUseReportWorkflow ? client.getReports() : Promise.resolve({ total: 0, items: [] }),
-      canUseReportWorkflow ? client.getSummary() : Promise.resolve(null),
+      canLoadReports ? client.getReports() : Promise.resolve({ total: 0, items: [] }),
+      canLoadReports ? client.getSummary() : Promise.resolve(null),
       client.getActivities(),
       client.getKpiLeaderboard("2026-07"),
-      canUseFinanceWorkflow ? client.getBudgetProposals() : Promise.resolve([]),
-      canUseReportWorkflow ? client.getExports() : Promise.resolve({ total: 0, items: [] }),
+      canLoadFinance ? client.getBudgetProposals() : Promise.resolve([]),
+      canLoadReports ? client.getExports() : Promise.resolve({ total: 0, items: [] }),
       client.getNotifications(user)
     ]);
     setClubs(clubRows);
@@ -212,6 +238,7 @@ export default function App() {
   }
 
   async function createDemoReport() {
+    if (!canUseReportWorkflow) return;
     const club = clubs[0];
     if (!club) return;
     const existingPeriods = new Set(reports.filter((report) => report.clubId === club.id).map((report) => report.period));
@@ -238,12 +265,14 @@ export default function App() {
   }
 
   async function uploadEvidence(reportId: number, file: File) {
+    if (!canUseReportWorkflow) return;
     await runAction(async () => {
       await api.uploadAttachment(reportId, file);
     });
   }
 
   async function createDemoActivity() {
+    if (!canUseReportWorkflow) return;
     const club = clubs[0];
     if (!club) return;
     await runAction(async () => {
@@ -260,6 +289,7 @@ export default function App() {
   }
 
   async function createDemoBudgetProposal() {
+    if (!canUseFinanceWorkflow) return;
     const club = clubs[0];
     if (!club) return;
     await runAction(async () => {
@@ -461,12 +491,12 @@ export default function App() {
         </div>
         <nav aria-label="Primary">
           <NavButton icon={<Gauge />} label="Dashboard" active={view === "dashboard"} onClick={() => setView("dashboard")} />
-          <NavButton icon={<FileText />} label="Reports" active={view === "reports"} onClick={() => setView("reports")} />
+          {canUseReportWorkflow && <NavButton icon={<FileText />} label="Reports" active={view === "reports"} onClick={() => setView("reports")} />}
           <NavButton icon={<Building2 />} label="Clubs" active={view === "clubs"} onClick={() => setView("clubs")} />
           <NavButton icon={<CalendarDays />} label="Activities" active={view === "activities"} onClick={() => setView("activities")} />
           <NavButton icon={<Trophy />} label="KPI" active={view === "kpi"} onClick={() => setView("kpi")} />
-          <NavButton icon={<WalletCards />} label="Finance" active={view === "finance"} onClick={() => setView("finance")} />
-          <NavButton icon={<FileSpreadsheet />} label="Exports" active={view === "exports"} onClick={() => setView("exports")} />
+          {canUseFinanceWorkflow && <NavButton icon={<WalletCards />} label="Finance" active={view === "finance"} onClick={() => setView("finance")} />}
+          {canUseReportWorkflow && <NavButton icon={<FileSpreadsheet />} label="Exports" active={view === "exports"} onClick={() => setView("exports")} />}
           <NavButton icon={<Bell />} label="Notifications" active={view === "notifications"} onClick={() => setView("notifications")} />
         </nav>
         <div className="sidebar-card">
@@ -502,43 +532,67 @@ export default function App() {
 
         {error && <div className="alert">{error}</div>}
         <div className="view-frame" key={view}>
-          {view === "dashboard" && <Dashboard summary={summary} reports={reports} notifications={notifications} kpi={kpi} activities={activities} budgetProposals={budgetProposals} onNavigate={setView} />}
-          {view === "reports" && (
-            <ReportsView
+          {view === "dashboard" && (
+            <Dashboard
+              summary={summary}
               reports={reports}
-              isAdmin={isAdmin}
-              busy={busy}
-              feedback={draftFeedback}
-              setFeedback={setDraftFeedback}
-              createDemoReport={createDemoReport}
-              submit={(id) => runAction(() => api.submitReport(id).then(() => undefined))}
-              review={(id) => runAction(() => api.reviewReport(id).then(() => undefined))}
-              approve={(id) => runAction(() => api.approveReport(id).then(() => undefined))}
-              reject={(id) => runAction(() => api.rejectReport(id, draftFeedback).then(() => undefined))}
-              uploadEvidence={uploadEvidence}
+              notifications={notifications}
+              kpi={kpi}
+              activities={activities}
+              budgetProposals={budgetProposals}
+              canUseReportWorkflow={canUseReportWorkflow}
+              canUseFinanceWorkflow={canUseFinanceWorkflow}
+              onNavigate={setView}
             />
+          )}
+          {view === "reports" && (
+            canUseReportWorkflow ? (
+              <ReportsView
+                reports={reports}
+                isAdmin={isAdmin}
+                busy={busy}
+                feedback={draftFeedback}
+                setFeedback={setDraftFeedback}
+                createDemoReport={createDemoReport}
+                submit={(id) => runAction(() => api.submitReport(id).then(() => undefined))}
+                review={(id) => runAction(() => api.reviewReport(id).then(() => undefined))}
+                approve={(id) => runAction(() => api.approveReport(id).then(() => undefined))}
+                reject={(id) => runAction(() => api.rejectReport(id, draftFeedback).then(() => undefined))}
+                uploadEvidence={uploadEvidence}
+              />
+            ) : (
+              <AccessNotice title="Reports are not available for this role." />
+            )
           )}
           {view === "clubs" && <ClubsView clubs={clubs} />}
           {view === "activities" && (
-            <ActivitiesView activities={activities} busy={busy} createActivity={createDemoActivity} />
+            <ActivitiesView activities={activities} busy={busy} canCreateActivity={canUseReportWorkflow} createActivity={createDemoActivity} />
           )}
           {view === "kpi" && <KpiView leaderboard={kpi} />}
           {view === "finance" && (
-            <FinanceView
-              proposals={budgetProposals}
-              busy={busy}
-              canManageFinance={canManageFinance}
-              isAdmin={isAdmin}
-              createProposal={createDemoBudgetProposal}
-              approveProposal={(id, amount) => runAction(() => api.approveBudgetProposal(id, amount).then(() => undefined))}
-            />
+            canUseFinanceWorkflow ? (
+              <FinanceView
+                proposals={budgetProposals}
+                busy={busy}
+                canManageFinance={canUseFinanceWorkflow}
+                isAdmin={isAdmin}
+                createProposal={createDemoBudgetProposal}
+                approveProposal={(id, amount) => runAction(() => api.approveBudgetProposal(id, amount).then(() => undefined))}
+              />
+            ) : (
+              <AccessNotice title="Finance is not available for this role." />
+            )
           )}
           {view === "exports" && (
-            <ExportsView
-              exportsList={exportsList}
-              busy={busy}
-              createExport={(type) => runAction(() => api.createExport(type, "Consolidated", "2026-07").then(() => undefined))}
-            />
+            canUseReportWorkflow ? (
+              <ExportsView
+                exportsList={exportsList}
+                busy={busy}
+                createExport={(type) => runAction(() => api.createExport(type, "Consolidated", "2026-07").then(() => undefined))}
+              />
+            ) : (
+              <AccessNotice title="Exports are not available for this role." />
+            )
           )}
           {view === "notifications" && (
             <NotificationsView
@@ -559,6 +613,8 @@ function Dashboard({
   kpi,
   activities,
   budgetProposals,
+  canUseReportWorkflow,
+  canUseFinanceWorkflow,
   onNavigate
 }: {
   summary: ReportSummary | null;
@@ -567,6 +623,8 @@ function Dashboard({
   kpi: KpiLeaderboard | null;
   activities: ActivityItem[];
   budgetProposals: BudgetProposal[];
+  canUseReportWorkflow: boolean;
+  canUseFinanceWorkflow: boolean;
   onNavigate: (view: View) => void;
 }) {
   const unreadCount = notifications.filter((item) => !item.isRead).length;
@@ -589,10 +647,12 @@ function Dashboard({
           <h2>One clean command center for club reporting, KPI, activities, and budgets.</h2>
           <p>Track what needs attention, move reports through approval, and keep club operations visible without digging through separate tools.</p>
           <div className="hero-actions">
-            <button className="primary" type="button" onClick={() => onNavigate("reports")}>
-              <FileText size={18} aria-hidden />
-              Review reports
-            </button>
+            {canUseReportWorkflow && (
+              <button className="primary" type="button" onClick={() => onNavigate("reports")}>
+                <FileText size={18} aria-hidden />
+                Review reports
+              </button>
+            )}
             <button className="secondary" type="button" onClick={() => onNavigate("activities")}>
               <CalendarDays size={18} aria-hidden />
               Activities
@@ -621,24 +681,28 @@ function Dashboard({
       </div>
 
       <section className="quick-actions" aria-label="Quick actions">
-        <button type="button" onClick={() => onNavigate("reports")}>
-          <span><ClipboardCheck size={18} aria-hidden /></span>
-          <strong>Reports</strong>
-          <small>{reviewCount} pending</small>
-          <ArrowUpRight size={16} aria-hidden />
-        </button>
+        {canUseReportWorkflow && (
+          <button type="button" onClick={() => onNavigate("reports")}>
+            <span><ClipboardCheck size={18} aria-hidden /></span>
+            <strong>Reports</strong>
+            <small>{reviewCount} pending</small>
+            <ArrowUpRight size={16} aria-hidden />
+          </button>
+        )}
         <button type="button" onClick={() => onNavigate("kpi")}>
           <span><Trophy size={18} aria-hidden /></span>
           <strong>KPI</strong>
           <small>{topClub?.clubName ?? "No ranking"}</small>
           <ArrowUpRight size={16} aria-hidden />
         </button>
-        <button type="button" onClick={() => onNavigate("finance")}>
-          <span><WalletCards size={18} aria-hidden /></span>
-          <strong>Finance</strong>
-          <small>{budgetProposals.filter((item) => item.status === "Submitted").length} pending</small>
-          <ArrowUpRight size={16} aria-hidden />
-        </button>
+        {canUseFinanceWorkflow && (
+          <button type="button" onClick={() => onNavigate("finance")}>
+            <span><WalletCards size={18} aria-hidden /></span>
+            <strong>Finance</strong>
+            <small>{budgetProposals.filter((item) => item.status === "Submitted").length} pending</small>
+            <ArrowUpRight size={16} aria-hidden />
+          </button>
+        )}
         <button type="button" onClick={() => onNavigate("notifications")}>
           <span><Megaphone size={18} aria-hidden /></span>
           <strong>Signals</strong>
@@ -647,10 +711,12 @@ function Dashboard({
         </button>
       </section>
 
-      <section className="panel panel-large">
-        <SectionTitle icon={<FileText />} title="Recent Reports" meta={`${reports.length} loaded`} />
-        <ReportList reports={reports.slice(0, 6)} />
-      </section>
+      {canUseReportWorkflow && (
+        <section className="panel panel-large">
+          <SectionTitle icon={<FileText />} title="Recent Reports" meta={`${reports.length} loaded`} />
+          <ReportList reports={reports.slice(0, 6)} />
+        </section>
+      )}
       <section className="panel insight-panel">
         <SectionTitle icon={<Trophy />} title="Top Club" meta={kpi?.period ?? "All periods"} />
         {topClub ? (
@@ -807,7 +873,17 @@ function ClubsView({ clubs }: { clubs: Club[] }) {
   );
 }
 
-function ActivitiesView({ activities, busy, createActivity }: { activities: ActivityItem[]; busy: boolean; createActivity: () => void }) {
+function ActivitiesView({
+  activities,
+  busy,
+  canCreateActivity,
+  createActivity
+}: {
+  activities: ActivityItem[];
+  busy: boolean;
+  canCreateActivity: boolean;
+  createActivity: () => void;
+}) {
   return (
     <section className="surface">
       <div className="surface-head">
@@ -816,10 +892,12 @@ function ActivitiesView({ activities, busy, createActivity }: { activities: Acti
           <h2>Activity Calendar</h2>
           <p>{activities.length} scheduled and completed club activities.</p>
         </div>
-        <button className="primary" type="button" disabled={busy} onClick={createActivity} title="Create demo activity">
-          <CalendarDays size={18} aria-hidden />
-          New activity
-        </button>
+        {canCreateActivity && (
+          <button className="primary" type="button" disabled={busy} onClick={createActivity} title="Create demo activity">
+            <CalendarDays size={18} aria-hidden />
+            New activity
+          </button>
+        )}
       </div>
       <ActivityList activities={activities} />
     </section>
@@ -1031,6 +1109,21 @@ function NotificationList({ notifications, markRead }: { notifications: Notifica
         </article>
       ))}
     </div>
+  );
+}
+
+function AccessNotice({ title }: { title: string }) {
+  return (
+    <section className="surface">
+      <div className="surface-head">
+        <div>
+          <span className="section-kicker"><ShieldCheck size={15} aria-hidden /> Role access</span>
+          <h2>{title}</h2>
+          <p>This workspace area is hidden for the current demo role so the app does not call forbidden APIs.</p>
+        </div>
+      </div>
+      <p className="empty">Use an Admin or Club Manager demo account for this workflow.</p>
+    </section>
   );
 }
 

@@ -47,6 +47,17 @@ import {
 
 type View = "dashboard" | "reports" | "clubs" | "activities" | "kpi" | "finance" | "exports" | "notifications";
 
+type ReportDraftForm = {
+  clubId: string;
+  period: string;
+  dueDate: string;
+  activityName: string;
+  activityDate: string;
+  participantCount: string;
+  description: string;
+  outcome: string;
+};
+
 const statusTone: Record<ReportStatus, string> = {
   Draft: "neutral",
   Submitted: "info",
@@ -75,6 +86,50 @@ function canAccessView(view: View, user: AuthResponse["user"]) {
   }
 
   return true;
+}
+
+function formatMonth(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getNextPeriod(period?: string) {
+  const cursor = period && /^\d{4}-\d{2}$/.test(period)
+    ? new Date(`${period}-01T00:00:00`)
+    : new Date();
+  cursor.setMonth(cursor.getMonth() + 1);
+  return formatMonth(cursor);
+}
+
+function getDueDateForPeriod(period: string) {
+  return /^\d{4}-\d{2}$/.test(period) ? `${period}-25` : "";
+}
+
+function createReportDraft(period = getNextPeriod()): ReportDraftForm {
+  return {
+    clubId: "",
+    period,
+    dueDate: getDueDateForPeriod(period),
+    activityName: "",
+    activityDate: "",
+    participantCount: "0",
+    description: "",
+    outcome: ""
+  };
+}
+
+function getAvailableReportPeriod(reports: Report[], clubId: number) {
+  const usedPeriods = new Set(reports.filter((report) => report.clubId === clubId).map((report) => report.period));
+  let period = getNextPeriod();
+
+  for (let index = 0; index < 24; index++) {
+    if (!usedPeriods.has(period)) {
+      return period;
+    }
+
+    period = getNextPeriod(period);
+  }
+
+  return period;
 }
 
 function isExpiredAuth(auth: AuthResponse) {
@@ -118,6 +173,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [draftFeedback, setDraftFeedback] = useState("Please add clearer evidence and resubmit.");
+  const [reportDraft, setReportDraft] = useState<ReportDraftForm>(() => createReportDraft());
 
   const api = useMemo(() => new ApiClient(auth?.accessToken), [auth?.accessToken]);
   const isAdmin = hasAnyRole(auth?.user, adminRoles);
@@ -129,6 +185,23 @@ export default function App() {
       setView("dashboard");
     }
   }, [auth?.accessToken, view]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0 });
+  }, [view]);
+
+  useEffect(() => {
+    if (clubs.length === 0 || reportDraft.clubId) return;
+
+    const club = clubs[0];
+    const period = getAvailableReportPeriod(reports, club.id);
+    setReportDraft((current) => ({
+      ...current,
+      clubId: String(club.id),
+      period,
+      dueDate: getDueDateForPeriod(period)
+    }));
+  }, [clubs, reports, reportDraft.clubId]);
 
   useEffect(() => {
     if (!auth) return;
@@ -237,31 +310,83 @@ export default function App() {
     clearSession();
   }
 
-  async function createDemoReport() {
+  function updateReportDraftField(field: keyof ReportDraftForm, value: string) {
+    setReportDraft((current) => {
+      if (field === "clubId") {
+        const clubId = Number(value);
+        const period = Number.isNaN(clubId) ? current.period : getAvailableReportPeriod(reports, clubId);
+        return {
+          ...current,
+          clubId: value,
+          period,
+          dueDate: getDueDateForPeriod(period)
+        };
+      }
+
+      if (field === "period") {
+        return {
+          ...current,
+          period: value,
+          dueDate: getDueDateForPeriod(value)
+        };
+      }
+
+      return {
+        ...current,
+        [field]: value
+      };
+    });
+  }
+
+  async function createReportFromDraft() {
     if (!canUseReportWorkflow) return;
-    const club = clubs[0];
-    if (!club) return;
-    const existingPeriods = new Set(reports.filter((report) => report.clubId === club.id).map((report) => report.period));
-    const nextPeriod = ["2026-08", "2026-09", "2026-10", "2026-11", "2026-12", "2027-01"]
-      .find((period) => !existingPeriods.has(period)) ?? `DEMO-${Date.now()}`;
-    const dueDate = /^\d{4}-\d{2}$/.test(nextPeriod) ? `${nextPeriod}-25` : "2027-01-25";
-    await runAction(async () => {
+
+    const club = clubs.find((item) => String(item.id) === reportDraft.clubId);
+    const participantCount = Number(reportDraft.participantCount);
+    const activityName = reportDraft.activityName.trim();
+    const description = reportDraft.description.trim();
+    const outcome = reportDraft.outcome.trim();
+
+    if (!club) {
+      setError("Choose a club before creating a report.");
+      return;
+    }
+
+    if (!reportDraft.period || !reportDraft.dueDate || !reportDraft.activityDate || !activityName || !description || !outcome) {
+      setError("Fill in club, period, dates, activity, description, and outcome before creating a report.");
+      return;
+    }
+
+    if (!Number.isInteger(participantCount) || participantCount < 0) {
+      setError("Participant count must be a whole number.");
+      return;
+    }
+
+    const created = await runAction(async () => {
       await api.createReport({
         clubId: club.id,
         clubName: club.name,
-        period: nextPeriod,
-        dueDate,
+        period: reportDraft.period,
+        dueDate: reportDraft.dueDate,
         details: [
           {
-            activityName: "Monthly club activity",
-            activityDate: "2026-07-12",
-            description: "Submitted through FPTU Club Hub demo workflow.",
-            participantCount: 32,
-            outcome: "Activity evidence and participation data recorded."
+            activityName,
+            activityDate: reportDraft.activityDate,
+            description,
+            participantCount,
+            outcome
           }
         ]
       });
     });
+
+    if (created) {
+      const nextPeriod = getNextPeriod(reportDraft.period);
+      setReportDraft({
+        ...createReportDraft(nextPeriod),
+        clubId: String(club.id)
+      });
+    }
   }
 
   async function uploadEvidence(reportId: number, file: File) {
@@ -310,8 +435,10 @@ export default function App() {
     try {
       await action();
       await refreshAll();
+      return true;
     } catch (err) {
       handleRequestError(err, "Action failed.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -548,12 +675,15 @@ export default function App() {
           {view === "reports" && (
             canUseReportWorkflow ? (
               <ReportsView
+                clubs={clubs}
                 reports={reports}
+                reportDraft={reportDraft}
                 isAdmin={isAdmin}
                 busy={busy}
                 feedback={draftFeedback}
                 setFeedback={setDraftFeedback}
-                createDemoReport={createDemoReport}
+                setReportDraftField={updateReportDraftField}
+                createReport={createReportFromDraft}
                 submit={(id) => runAction(() => api.submitReport(id).then(() => undefined))}
                 review={(id) => runAction(() => api.reviewReport(id).then(() => undefined))}
                 approve={(id) => runAction(() => api.approveReport(id).then(() => undefined))}
@@ -741,12 +871,15 @@ function Dashboard({
 }
 
 function ReportsView(props: {
+  clubs: Club[];
   reports: Report[];
+  reportDraft: ReportDraftForm;
   isAdmin: boolean;
   busy: boolean;
   feedback: string;
   setFeedback: (value: string) => void;
-  createDemoReport: () => void;
+  setReportDraftField: (field: keyof ReportDraftForm, value: string) => void;
+  createReport: () => void;
   submit: (id: number) => void;
   review: (id: number) => void;
   approve: (id: number) => void;
@@ -759,6 +892,11 @@ function ReportsView(props: {
     props.uploadEvidence(reportId, file);
   }
 
+  function handleCreateReport(event: FormEvent) {
+    event.preventDefault();
+    props.createReport();
+  }
+
   return (
     <section className="surface">
       <div className="surface-head">
@@ -767,11 +905,61 @@ function ReportsView(props: {
           <h2>Report Workflow</h2>
           <p>{props.reports.length} reports across draft, review, and approval states.</p>
         </div>
-        <button className="primary" type="button" onClick={props.createDemoReport} disabled={props.busy} title="Create a demo draft report">
-          <FileText size={18} aria-hidden />
-          New report
-        </button>
       </div>
+      <form className="report-form" onSubmit={handleCreateReport} aria-label="Create report">
+        <div className="report-form-head">
+          <div>
+            <span className="section-kicker"><FileText size={15} aria-hidden /> New report</span>
+            <h3>Enter report content</h3>
+          </div>
+          <button className="primary" type="submit" disabled={props.busy || props.clubs.length === 0}>
+            <FileText size={18} aria-hidden />
+            Create report
+          </button>
+        </div>
+        <div className="report-form-grid">
+          <label>
+            Club
+            <select value={props.reportDraft.clubId} onChange={(event) => props.setReportDraftField("clubId", event.target.value)} disabled={props.clubs.length === 0}>
+              {props.clubs.length === 0 ? (
+                <option value="">No clubs loaded</option>
+              ) : (
+                props.clubs.map((club) => (
+                  <option value={club.id} key={club.id}>{club.name}</option>
+                ))
+              )}
+            </select>
+          </label>
+          <label>
+            Report period
+            <input type="month" value={props.reportDraft.period} onChange={(event) => props.setReportDraftField("period", event.target.value)} />
+          </label>
+          <label>
+            Due date
+            <input type="date" value={props.reportDraft.dueDate} onChange={(event) => props.setReportDraftField("dueDate", event.target.value)} />
+          </label>
+          <label>
+            Activity name
+            <input value={props.reportDraft.activityName} onChange={(event) => props.setReportDraftField("activityName", event.target.value)} placeholder="Monthly workshop, tournament, seminar..." />
+          </label>
+          <label>
+            Activity date
+            <input type="date" value={props.reportDraft.activityDate} onChange={(event) => props.setReportDraftField("activityDate", event.target.value)} />
+          </label>
+          <label>
+            Participants
+            <input type="number" min="0" value={props.reportDraft.participantCount} onChange={(event) => props.setReportDraftField("participantCount", event.target.value)} />
+          </label>
+          <label className="span-2">
+            Report description
+            <textarea value={props.reportDraft.description} onChange={(event) => props.setReportDraftField("description", event.target.value)} placeholder="What happened, who joined, and what evidence is attached?" />
+          </label>
+          <label className="span-2">
+            Outcome
+            <textarea value={props.reportDraft.outcome} onChange={(event) => props.setReportDraftField("outcome", event.target.value)} placeholder="Result, impact, lessons learned, or follow-up actions." />
+          </label>
+        </div>
+      </form>
       <div className="feedback-row inline-field">
         <label>
           Rejection feedback

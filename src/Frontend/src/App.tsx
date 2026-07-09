@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import clubHubHero from "./assets/club-hub-hero-premium.webp";
+import landingProduct from "./assets/club-hub-landing-product.webp";
 import {
   ApiClient,
   ApiError,
@@ -286,23 +287,126 @@ export default function App() {
     }
   }
 
+  function chooseDemoAccount(nextUsername: string, nextPassword: string) {
+    setUsername(nextUsername);
+    setPassword(nextPassword);
+  }
+
   if (!auth) {
     return (
-      <main className="login-shell">
-        <section className="login-card" aria-label="Login">
-          <div className="login-visual">
-            <img src={clubHubHero} alt="" />
+      <main className="landing-page">
+        <header className="landing-nav">
+          <a className="landing-brand" href="#top" aria-label="FPTU Club Hub home">
+            <span><Building2 size={23} aria-hidden /></span>
             <div>
-              <span>FPTU Club Hub</span>
-              <strong>Reports, KPI, activities, and finance in one place.</strong>
+              <strong>FPTU Club Hub</strong>
+              <small>Management & Report Hub</small>
+            </div>
+          </a>
+          <nav aria-label="Landing navigation">
+            <a href="#features">Features</a>
+            <a href="#workflow">Workflow</a>
+            <a href="#demo-login">Demo</a>
+          </nav>
+          <a className="landing-nav-cta" href="#demo-login">Try demo</a>
+        </header>
+
+        <section id="top" className="landing-hero">
+          <div className="landing-copy">
+            <span className="landing-eyebrow"><Sparkles size={15} aria-hidden /> Built for student affairs teams</span>
+            <h1>FPTU Club Hub</h1>
+            <p>Club operations, reporting, KPI tracking, activity calendars, budgets, exports, and notifications in one polished workspace.</p>
+            <div className="landing-actions">
+              <a className="landing-button landing-primary" href="#demo-login">
+                <LogIn size={18} aria-hidden />
+                Launch demo
+              </a>
+              <a className="landing-button" href="#features">
+                <ArrowUpRight size={18} aria-hidden />
+                Explore product
+              </a>
+            </div>
+            <div className="landing-proof" aria-label="Product highlights">
+              <span><strong>8</strong> services</span>
+              <span><strong>4</strong> demo roles</span>
+              <span><strong>1</strong> command center</span>
             </div>
           </div>
-          <div className="login-panel">
-            <div className="brand-mark">
-              <Building2 size={28} aria-hidden />
+
+          <div className="landing-product">
+            <img src={landingProduct} alt="" />
+            <div className="product-chip chip-kpi">
+              <Trophy size={18} aria-hidden />
+              KPI live
             </div>
-            <h1>FPTU Club Hub</h1>
-            <p>Club management, reporting, KPI, and finance workspace.</p>
+            <div className="product-chip chip-budget">
+              <WalletCards size={18} aria-hidden />
+              Budget ready
+            </div>
+          </div>
+        </section>
+
+        <section id="features" className="landing-section landing-features">
+          <div className="landing-section-head">
+            <span className="landing-eyebrow">Product modules</span>
+            <h2>Everything clubs need after the event ends.</h2>
+            <p>Designed around repeated student affairs workflows, not a generic admin template.</p>
+          </div>
+          <div className="landing-feature-grid">
+            <article>
+              <FileText size={22} aria-hidden />
+              <h3>Report workflow</h3>
+              <p>Create, submit, review, approve, reject, and attach evidence with clear status states.</p>
+            </article>
+            <article>
+              <Trophy size={22} aria-hidden />
+              <h3>KPI leaderboard</h3>
+              <p>Turn participation and approved reports into scannable performance rankings.</p>
+            </article>
+            <article>
+              <WalletCards size={22} aria-hidden />
+              <h3>Finance tracking</h3>
+              <p>Budget proposals and settlement signals stay next to club activity context.</p>
+            </article>
+            <article>
+              <Bell size={22} aria-hidden />
+              <h3>Smart signals</h3>
+              <p>Notifications keep admins, managers, treasurers, and members moving in the same flow.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="workflow" className="landing-section landing-workflow">
+          <div className="landing-section-head">
+            <span className="landing-eyebrow">Workflow</span>
+            <h2>From activity evidence to decision-ready reports.</h2>
+          </div>
+          <div className="workflow-steps">
+            <article>
+              <span>01</span>
+              <h3>Collect</h3>
+              <p>Clubs record activities, participants, attachments, and outcomes in one place.</p>
+            </article>
+            <article>
+              <span>02</span>
+              <h3>Review</h3>
+              <p>Student affairs can inspect reports, give feedback, and move status forward.</p>
+            </article>
+            <article>
+              <span>03</span>
+              <h3>Decide</h3>
+              <p>KPIs, finance proposals, exports, and notifications close the loop cleanly.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="demo-login" className="landing-section landing-demo">
+          <div className="landing-demo-copy">
+            <span className="landing-eyebrow">Live product demo</span>
+            <h2>Open the workspace with seeded roles.</h2>
+            <p>Pick a demo account, sign in, and jump straight into the real dashboard backed by the running microservices.</p>
+          </div>
+          <div className="landing-login-panel">
             <form onSubmit={handleLogin} className="login-form">
               <label>
                 Username
@@ -319,21 +423,26 @@ export default function App() {
               </button>
             </form>
             <div className="demo-row" aria-label="Demo accounts">
-              <button type="button" onClick={() => { setUsername("admin@club.local"); setPassword("Admin@12345"); }}>
+              <button type="button" onClick={() => chooseDemoAccount("admin@club.local", "Admin@12345")}>
                 Admin
               </button>
-              <button type="button" onClick={() => { setUsername("manager@club.local"); setPassword("Manager@12345"); }}>
+              <button type="button" onClick={() => chooseDemoAccount("manager@club.local", "Manager@12345")}>
                 Manager
               </button>
-              <button type="button" onClick={() => { setUsername("treasurer@club.local"); setPassword("Treasurer@12345"); }}>
+              <button type="button" onClick={() => chooseDemoAccount("treasurer@club.local", "Treasurer@12345")}>
                 Treasurer
               </button>
-              <button type="button" onClick={() => { setUsername("student@club.local"); setPassword("Student@12345"); }}>
+              <button type="button" onClick={() => chooseDemoAccount("student@club.local", "Student@12345")}>
                 Student
               </button>
             </div>
           </div>
         </section>
+
+        <footer className="landing-footer">
+          <span>FPTU Club Hub</span>
+          <span>ASP.NET Core microservices / React / SQL Server / RabbitMQ</span>
+        </footer>
       </main>
     );
   }

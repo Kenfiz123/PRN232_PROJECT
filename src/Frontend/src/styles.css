@@ -1185,6 +1185,29 @@ nav {
   margin-bottom: 16px;
 }
 
+.auth-switch {
+  margin-bottom: 12px;
+  padding: 4px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.8);
+}
+
+.auth-switch button {
+  min-height: 38px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.auth-switch button.active {
+  color: #ffffff;
+  background: var(--teal);
+  box-shadow: 0 10px 22px rgba(15, 118, 110, 0.2);
+}
+
 .report-form,
 .module-form {
   margin-bottom: 18px;
@@ -1451,6 +1474,23 @@ nav {
   gap: 14px;
 }
 
+.workflow-strip {
+  margin-bottom: 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.workflow-card {
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(23, 32, 51, 0.06);
+}
+
 .item-card {
   padding: 16px;
   display: grid;
@@ -1472,6 +1512,10 @@ nav {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.club-card-head .badge {
+  margin-left: auto;
 }
 
 .club-avatar {
@@ -1528,6 +1572,98 @@ dd {
   text-align: right;
   color: var(--ink);
   word-break: break-word;
+}
+
+.membership-state {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.member-panel {
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.member-panel-head,
+.member-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.member-panel-head span,
+.member-row small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.member-list {
+  display: grid;
+  gap: 8px;
+}
+
+.member-row {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  flex-wrap: wrap;
+}
+
+.member-row span:first-child {
+  font-weight: 820;
+}
+
+.user-role-list {
+  display: grid;
+  gap: 12px;
+}
+
+.user-role-card {
+  padding: 14px;
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.4fr);
+  gap: 16px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.user-role-card > div:first-child {
+  display: grid;
+  gap: 6px;
+}
+
+.user-role-card small {
+  color: var(--muted);
+}
+
+.role-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.role-toggle {
+  min-height: 38px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 12px;
+  font-weight: 820;
 }
 
 .leaderboard {

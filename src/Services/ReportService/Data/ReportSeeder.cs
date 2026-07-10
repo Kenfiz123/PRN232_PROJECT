@@ -21,6 +21,8 @@ public static class ReportSeeder
                 ClubId = 1,
                 ClubName = "Robotics Club",
                 Period = "2026-07",
+                ReportType = "Activity report",
+                Tag = "Activity report",
                 CreatedByUserId = 2,
                 DueDate = new DateOnly(2026, 7, 25),
                 Status = ReportStatuses.Draft,
@@ -36,6 +38,15 @@ public static class ReportSeeder
                     }
                 ]
             });
+        }
+
+        var reportsWithoutTags = await db.Reports
+            .Where(x => x.ReportType == string.Empty || x.Tag == string.Empty)
+            .ToListAsync();
+        foreach (var report in reportsWithoutTags)
+        {
+            report.ReportType = "Activity report";
+            report.Tag = "Activity report";
         }
 
         await db.SaveChangesAsync();

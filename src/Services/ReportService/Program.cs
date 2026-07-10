@@ -57,12 +57,13 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 app.MapHealthChecks("/health");
 app.MapGet("/", () => Results.Ok(new { service = "Report Service", status = "running" }));
 
-var reports = app.MapGroup("/api/reports").WithTags("Reports").RequireAuthorization(AuthPolicies.AdminOrClubManager);
+var reports = app.MapGroup("/api/reports").WithTags("Reports").RequireAuthorization(AuthPolicies.AdminOrClubManagerOrMember);
 
 reports.MapGet("/", async (
     int? clubId,
     string? status,
     string? period,
+    string? tag,
     int page,
     int pageSize,
     ReportDbContext db) =>
@@ -89,6 +90,11 @@ reports.MapGet("/", async (
     if (!string.IsNullOrWhiteSpace(period))
     {
         query = query.Where(x => x.Period == period);
+    }
+
+    if (!string.IsNullOrWhiteSpace(tag))
+    {
+        query = query.Where(x => x.Tag == tag);
     }
 
     var total = await query.CountAsync();
@@ -215,16 +221,22 @@ reports.MapGet("/{id:int}", async (int id, ReportDbContext db) =>
 
 reports.MapPost("/", async (CreateReportRequest request, ReportDbContext db, ClaimsPrincipal user) =>
 {
-    if (await db.Reports.AnyAsync(x => x.ClubId == request.ClubId && x.Period == request.Period))
+    var tag = NormalizeReportTag(request.Tag, request.ReportType);
+    var reportType = NormalizeReportType(request.ReportType, tag);
+    var period = request.Period.Trim();
+
+    if (await db.Reports.AnyAsync(x => x.ClubId == request.ClubId && x.Period == period && x.Tag == tag))
     {
-        return Results.Conflict(new { message = "A report already exists for this club and period." });
+        return Results.Conflict(new { message = "A report already exists for this club, period, and tag." });
     }
 
     var report = new Report
     {
         ClubId = request.ClubId,
         ClubName = request.ClubName.Trim(),
-        Period = request.Period.Trim(),
+        Period = period,
+        ReportType = reportType,
+        Tag = tag,
         DueDate = request.DueDate,
         CreatedByUserId = user.GetUserId(),
         Details = request.Details.Select(ToDetail).ToList()
@@ -249,7 +261,16 @@ reports.MapPut("/{id:int}", async (int id, UpdateReportRequest request, ReportDb
         return Results.BadRequest(new { message = "Only draft or rejected reports can be edited." });
     }
 
-    report.Period = request.Period.Trim();
+    var period = request.Period.Trim();
+    var tag = NormalizeReportTag(request.Tag, request.ReportType);
+    if (await db.Reports.AnyAsync(x => x.Id != id && x.ClubId == report.ClubId && x.Period == period && x.Tag == tag))
+    {
+        return Results.Conflict(new { message = "Another report already uses this club, period, and tag." });
+    }
+
+    report.Period = period;
+    report.Tag = tag;
+    report.ReportType = NormalizeReportType(request.ReportType, tag);
     report.DueDate = request.DueDate;
     report.UpdatedAtUtc = DateTimeOffset.UtcNow;
     report.Version++;
@@ -589,11 +610,24 @@ static async Task AddAuditAsync(ReportDbContext db, int reportId, string action,
     await db.SaveChangesAsync(cancellationToken);
 }
 
+static string NormalizeReportTag(string? tag, string? reportType)
+{
+    var value = string.IsNullOrWhiteSpace(tag) ? reportType : tag;
+    return string.IsNullOrWhiteSpace(value) ? "Activity report" : value.Trim();
+}
+
+static string NormalizeReportType(string? reportType, string fallbackTag)
+{
+    return string.IsNullOrWhiteSpace(reportType) ? fallbackTag : reportType.Trim();
+}
+
 static ReportResponse ToResponse(Report report) => new(
     report.Id,
     report.ClubId,
     report.ClubName,
     report.Period,
+    report.ReportType,
+    report.Tag,
     report.Status,
     report.CreatedByUserId,
     report.DueDate,

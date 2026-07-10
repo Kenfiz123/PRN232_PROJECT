@@ -11,4 +11,5 @@ public sealed class Club
     public bool IsActive { get; set; } = true;
     public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public ICollection<ClubManagerAssignment> ManagerAssignments { get; set; } = [];
+    public ICollection<ClubMembership> Memberships { get; set; } = [];
 }

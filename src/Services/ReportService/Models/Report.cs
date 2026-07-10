@@ -6,6 +6,8 @@ public sealed class Report
     public int ClubId { get; set; }
     public string ClubName { get; set; } = string.Empty;
     public string Period { get; set; } = string.Empty;
+    public string ReportType { get; set; } = "Activity report";
+    public string Tag { get; set; } = "Activity report";
     public string Status { get; set; } = ReportStatuses.Draft;
     public int CreatedByUserId { get; set; }
     public DateOnly DueDate { get; set; }

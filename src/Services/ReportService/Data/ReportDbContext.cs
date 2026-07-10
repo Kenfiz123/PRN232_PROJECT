@@ -16,10 +16,12 @@ public sealed class ReportDbContext(DbContextOptions<ReportDbContext> options) :
     {
         modelBuilder.Entity<Report>(entity =>
         {
-            entity.HasIndex(x => new { x.ClubId, x.Period }).IsUnique();
+            entity.HasIndex(x => new { x.ClubId, x.Period, x.Tag }).IsUnique();
             entity.HasIndex(x => x.Status);
             entity.Property(x => x.ClubName).HasMaxLength(200);
             entity.Property(x => x.Period).HasMaxLength(40);
+            entity.Property(x => x.ReportType).HasMaxLength(80);
+            entity.Property(x => x.Tag).HasMaxLength(80);
             entity.Property(x => x.Status).HasMaxLength(40);
             entity.HasMany(x => x.Details).WithOne(x => x.Report).HasForeignKey(x => x.ReportId).OnDelete(DeleteBehavior.Cascade);
             entity.HasMany(x => x.Attachments).WithOne(x => x.Report).HasForeignKey(x => x.ReportId).OnDelete(DeleteBehavior.Cascade);

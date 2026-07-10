@@ -55,12 +55,51 @@ auth.MapPost("/login", async (
         return Results.Unauthorized();
     }
 
-    var roles = user.UserRoles.Select(x => x.Role.Name).OrderBy(x => x).ToArray();
-    var token = tokenFactory.CreateToken(user.Id, user.Username, user.FullName, roles);
-    return Results.Ok(new AuthResponse(
-        token.AccessToken,
-        token.ExpiresAtUtc,
-        ToSummary(user)));
+    return Results.Ok(CreateAuthResponse(user, tokenFactory));
+}).AllowAnonymous();
+
+auth.MapPost("/register", async (
+    RegisterRequest request,
+    AuthDbContext db,
+    IPasswordHasher<User> passwordHasher,
+    JwtTokenFactory tokenFactory) =>
+{
+    var username = request.Username.Trim();
+    var email = request.Email.Trim();
+    var fullName = request.FullName.Trim();
+
+    if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(fullName) || request.Password.Length < 8)
+    {
+        return Results.BadRequest(new { message = "Username, full name, email, and an 8+ character password are required." });
+    }
+
+    if (await db.Users.AnyAsync(x => x.Username == username || x.Email == email))
+    {
+        return Results.Conflict(new { message = "Username or email already exists." });
+    }
+
+    var memberRole = await db.Roles.FirstOrDefaultAsync(x => x.Name == AuthRoles.ClubMember);
+    if (memberRole is null)
+    {
+        memberRole = new Role { Name = AuthRoles.ClubMember };
+        db.Roles.Add(memberRole);
+        await db.SaveChangesAsync();
+    }
+
+    var user = new User
+    {
+        Username = username,
+        FullName = fullName,
+        Email = email,
+        IsActive = true
+    };
+    user.PasswordHash = passwordHasher.HashPassword(user, request.Password);
+    user.UserRoles.Add(new UserRole { User = user, Role = memberRole });
+
+    db.Users.Add(user);
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/api/users/{user.Id}", CreateAuthResponse(user, tokenFactory, [AuthRoles.ClubMember]));
 }).AllowAnonymous();
 
 auth.MapPost("/refresh", () => Results.Problem("Refresh token flow is reserved for the production hardening step.", statusCode: StatusCodes.Status501NotImplemented))
@@ -185,4 +224,14 @@ static UserSummary ToSummary(User user, IEnumerable<string>? withRoles = null)
 {
     var roles = withRoles?.ToArray() ?? user.UserRoles.Select(x => x.Role.Name).OrderBy(x => x).ToArray();
     return new UserSummary(user.Id, user.Username, user.FullName, user.Email, roles, user.IsActive, user.IsLocked);
+}
+
+static AuthResponse CreateAuthResponse(User user, JwtTokenFactory tokenFactory, IEnumerable<string>? withRoles = null)
+{
+    var roles = withRoles?.ToArray() ?? user.UserRoles.Select(x => x.Role.Name).OrderBy(x => x).ToArray();
+    var token = tokenFactory.CreateToken(user.Id, user.Username, user.FullName, roles);
+    return new AuthResponse(
+        token.AccessToken,
+        token.ExpiresAtUtc,
+        ToSummary(user, roles));
 }

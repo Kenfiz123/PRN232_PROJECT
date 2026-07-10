@@ -37,20 +37,26 @@ import {
   AuthResponse,
   BudgetProposal,
   Club,
+  ClubApplication,
+  ClubMembership,
   ExportRequest,
   KpiLeaderboard,
   NotificationItem,
   Report,
+  Role,
+  RoleRecord,
   ReportStatus,
   ReportSummary
 } from "./api";
 
-type View = "dashboard" | "reports" | "clubs" | "activities" | "kpi" | "finance" | "exports" | "notifications";
+type View = "dashboard" | "reports" | "clubs" | "activities" | "kpi" | "finance" | "exports" | "notifications" | "users";
 
 type ReportDraftForm = {
   editingReportId?: number;
   clubId: string;
   period: string;
+  reportType: string;
+  tag: string;
   dueDate: string;
   activityName: string;
   activityDate: string;
@@ -65,6 +71,13 @@ type ClubForm = {
   description: string;
   contactEmail: string;
   contactPhone: string;
+};
+
+type RegisterForm = {
+  username: string;
+  fullName: string;
+  email: string;
+  password: string;
 };
 
 type ActivityForm = {
@@ -104,18 +117,23 @@ const sessionExpiredMessage = "Session expired. Please sign in again.";
 const adminRoles = ["ADMIN", "SYSTEM_ADMIN", "STUDENT_AFFAIRS_ADMIN"];
 const reportWorkflowRoles = [...adminRoles, "CLUB_MANAGER"];
 const financeWorkflowRoles = [...reportWorkflowRoles, "TREASURER"];
+const reportTags = ["Activity report", "Treasury report", "Event report", "Monthly summary"];
 
 function hasAnyRole(user: AuthResponse["user"] | null | undefined, allowedRoles: string[]) {
   return user?.roles.some((role) => allowedRoles.includes(role)) ?? false;
 }
 
-function canAccessView(view: View, user: AuthResponse["user"]) {
+function canAccessView(view: View, access: { reports: boolean; finance: boolean; admin: boolean }) {
   if (view === "reports" || view === "exports") {
-    return hasAnyRole(user, reportWorkflowRoles);
+    return access.reports;
   }
 
   if (view === "finance") {
-    return hasAnyRole(user, financeWorkflowRoles);
+    return access.finance;
+  }
+
+  if (view === "users") {
+    return access.admin;
   }
 
   return true;
@@ -142,6 +160,8 @@ function createReportDraft(period = getNextPeriod()): ReportDraftForm {
     editingReportId: undefined,
     clubId: "",
     period,
+    reportType: "Activity report",
+    tag: "Activity report",
     dueDate: getDueDateForPeriod(period),
     activityName: "",
     activityDate: "",
@@ -151,8 +171,8 @@ function createReportDraft(period = getNextPeriod()): ReportDraftForm {
   };
 }
 
-function getAvailableReportPeriod(reports: Report[], clubId: number) {
-  const usedPeriods = new Set(reports.filter((report) => report.clubId === clubId).map((report) => report.period));
+function getAvailableReportPeriod(reports: Report[], clubId: number, tag = "Activity report") {
+  const usedPeriods = new Set(reports.filter((report) => report.clubId === clubId && report.tag === tag).map((report) => report.period));
   let period = getNextPeriod();
 
   for (let index = 0; index < 24; index++) {
@@ -206,6 +226,15 @@ function createClubDraft(): ClubForm {
   };
 }
 
+function createRegisterDraft(): RegisterForm {
+  return {
+    username: "",
+    fullName: "",
+    email: "",
+    password: ""
+  };
+}
+
 function toIsoFromDateTimeInput(value: string) {
   return new Date(value).toISOString();
 }
@@ -238,9 +267,14 @@ function readStoredAuth() {
 export default function App() {
   const [auth, setAuth] = useState<AuthResponse | null>(() => readStoredAuth());
   const [view, setView] = useState<View>("dashboard");
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("admin@club.local");
   const [password, setPassword] = useState("Admin@12345");
+  const [registerDraft, setRegisterDraft] = useState<RegisterForm>(() => createRegisterDraft());
   const [clubs, setClubs] = useState<Club[]>([]);
+  const [managedClubs, setManagedClubs] = useState<Club[]>([]);
+  const [myMemberships, setMyMemberships] = useState<ClubMembership[]>([]);
+  const [clubApplications, setClubApplications] = useState<ClubApplication[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [summary, setSummary] = useState<ReportSummary | null>(null);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
@@ -249,6 +283,7 @@ export default function App() {
   const [exportsList, setExportsList] = useState<ExportRequest[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [users, setUsers] = useState<AuthResponse["user"][]>([]);
+  const [roles, setRoles] = useState<RoleRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [draftFeedback, setDraftFeedback] = useState("Please add clearer evidence and resubmit.");
@@ -261,31 +296,42 @@ export default function App() {
 
   const api = useMemo(() => new ApiClient(auth?.accessToken), [auth?.accessToken]);
   const isAdmin = hasAnyRole(auth?.user, adminRoles);
-  const canUseReportWorkflow = hasAnyRole(auth?.user, reportWorkflowRoles);
-  const canUseFinanceWorkflow = hasAnyRole(auth?.user, financeWorkflowRoles);
+  const treasurerMembership = myMemberships.find((membership) => membership.status === "Approved" && membership.role === "TREASURER");
+  const scopedTreasurerClub = treasurerMembership ? clubs.find((club) => club.id === treasurerMembership.clubId) : undefined;
+  const scopedManagedClub = managedClubs[0];
+  const reportClubScope = !isAdmin && !hasAnyRole(auth?.user, reportWorkflowRoles)
+    ? scopedManagedClub ?? scopedTreasurerClub
+    : undefined;
+  const canUseReportWorkflow = hasAnyRole(auth?.user, reportWorkflowRoles) || Boolean(scopedManagedClub || scopedTreasurerClub);
+  const canUseFinanceWorkflow = hasAnyRole(auth?.user, financeWorkflowRoles) || Boolean(scopedTreasurerClub);
+  const reportClubs = reportClubScope ? [reportClubScope] : clubs;
+  const visibleReports = reportClubScope ? reports.filter((report) => report.clubId === reportClubScope.id) : reports;
 
   useEffect(() => {
-    if (auth && !canAccessView(view, auth.user)) {
+    if (auth && !canAccessView(view, { reports: canUseReportWorkflow, finance: canUseFinanceWorkflow, admin: isAdmin })) {
       setView("dashboard");
     }
-  }, [auth?.accessToken, view]);
+  }, [auth?.accessToken, view, canUseReportWorkflow, canUseFinanceWorkflow, isAdmin]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0 });
   }, [view]);
 
   useEffect(() => {
-    if (clubs.length === 0 || reportDraft.clubId) return;
+    if (reportClubs.length === 0) return;
 
-    const club = clubs[0];
-    const period = getAvailableReportPeriod(reports, club.id);
+    if (reportClubScope && reportDraft.clubId === String(reportClubScope.id)) return;
+    if (!reportClubScope && reportDraft.clubId) return;
+
+    const club = reportClubScope ?? reportClubs[0];
+    const period = getAvailableReportPeriod(reports, club.id, reportDraft.tag);
     setReportDraft((current) => ({
       ...current,
       clubId: String(club.id),
       period,
       dueDate: getDueDateForPeriod(period)
     }));
-  }, [clubs, reports, reportDraft.clubId]);
+  }, [reportClubs, reportClubScope, reports, reportDraft.clubId, reportDraft.tag]);
 
   useEffect(() => {
     if (clubs.length === 0) return;
@@ -323,21 +369,26 @@ export default function App() {
   }, [auth?.accessToken]);
 
   async function loadAll(client: ApiClient, user: AuthResponse["user"]) {
-    const canLoadReports = hasAnyRole(user, reportWorkflowRoles);
     const canLoadFinance = hasAnyRole(user, financeWorkflowRoles);
     const canLoadUsers = hasAnyRole(user, adminRoles);
-    const [clubRows, reportPage, reportSummary, activityRows, kpiRows, budgetRows, exportPage, notificationRows, userRows] = await Promise.all([
+    const [clubRows, managedRows, membershipRows, reportPage, reportSummary, activityRows, kpiRows, budgetRows, exportPage, notificationRows, userRows, roleRows, applicationRows] = await Promise.all([
       client.getClubs(),
-      canLoadReports ? client.getReports() : Promise.resolve({ total: 0, items: [] }),
-      canLoadReports ? client.getSummary() : Promise.resolve(null),
+      client.getManagedClubs(),
+      client.getMyClubMemberships(),
+      client.getReports(),
+      client.getSummary(),
       client.getActivities(),
       client.getKpiLeaderboard("2026-07"),
       canLoadFinance ? client.getBudgetProposals() : Promise.resolve([]),
-      canLoadReports ? client.getExports() : Promise.resolve({ total: 0, items: [] }),
+      hasAnyRole(user, reportWorkflowRoles) ? client.getExports() : Promise.resolve({ total: 0, items: [] }),
       client.getNotifications(user),
-      canLoadUsers ? client.getUsers() : Promise.resolve([])
+      canLoadUsers ? client.getUsers() : Promise.resolve([]),
+      canLoadUsers ? client.getRoles() : Promise.resolve([]),
+      canLoadUsers ? client.getClubApplications() : Promise.resolve([])
     ]);
     setClubs(clubRows);
+    setManagedClubs(managedRows);
+    setMyMemberships(membershipRows);
     setReports(reportPage.items);
     setSummary(reportSummary);
     setActivities(activityRows);
@@ -346,6 +397,8 @@ export default function App() {
     setExportsList(exportPage.items);
     setNotifications(notificationRows);
     setUsers(userRows);
+    setRoles(roleRows);
+    setClubApplications(applicationRows);
   }
 
   async function refreshAll() {
@@ -377,12 +430,48 @@ export default function App() {
     }
   }
 
+  function updateRegisterDraftField(field: keyof RegisterForm, value: string) {
+    setRegisterDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleRegister(event: FormEvent) {
+    event.preventDefault();
+    const payload = {
+      username: registerDraft.username.trim(),
+      fullName: registerDraft.fullName.trim(),
+      email: registerDraft.email.trim(),
+      password: registerDraft.password
+    };
+
+    if (!payload.username || !payload.fullName || !payload.email || payload.password.length < 8) {
+      setError("Fill username, full name, email, and an 8+ character password.");
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await new ApiClient().register(payload);
+      localStorage.setItem(authStorageKey, JSON.stringify(result));
+      setAuth(result);
+      setRegisterDraft(createRegisterDraft());
+      setView("clubs");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Registration failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function clearSession(message?: string) {
     localStorage.removeItem(authStorageKey);
     setAuth(null);
     setView("dashboard");
     setReports([]);
     setClubs([]);
+    setManagedClubs([]);
+    setMyMemberships([]);
+    setClubApplications([]);
     setSummary(null);
     setActivities([]);
     setKpi(null);
@@ -390,6 +479,7 @@ export default function App() {
     setExportsList([]);
     setNotifications([]);
     setUsers([]);
+    setRoles([]);
     setError(message ?? null);
   }
 
@@ -410,7 +500,7 @@ export default function App() {
     setReportDraft((current) => {
       if (field === "clubId") {
         const clubId = Number(value);
-        const period = Number.isNaN(clubId) ? current.period : getAvailableReportPeriod(reports, clubId);
+        const period = Number.isNaN(clubId) ? current.period : getAvailableReportPeriod(reports, clubId, current.tag);
         return {
           ...current,
           clubId: value,
@@ -427,6 +517,18 @@ export default function App() {
         };
       }
 
+      if (field === "tag") {
+        const clubId = Number(current.clubId);
+        const period = Number.isNaN(clubId) ? current.period : getAvailableReportPeriod(reports, clubId, value);
+        return {
+          ...current,
+          tag: value,
+          reportType: value,
+          period,
+          dueDate: getDueDateForPeriod(period)
+        };
+      }
+
       return {
         ...current,
         [field]: value
@@ -437,11 +539,13 @@ export default function App() {
   async function createReportFromDraft() {
     if (!canUseReportWorkflow) return;
 
-    const club = clubs.find((item) => String(item.id) === reportDraft.clubId);
+    const club = reportClubScope ?? clubs.find((item) => String(item.id) === reportDraft.clubId);
     const participantCount = Number(reportDraft.participantCount);
     const activityName = reportDraft.activityName.trim();
     const description = reportDraft.description.trim();
     const outcome = reportDraft.outcome.trim();
+    const tag = reportDraft.tag.trim() || "Activity report";
+    const reportType = reportDraft.reportType.trim() || tag;
 
     if (!club) {
       setError("Choose a club before creating a report.");
@@ -472,6 +576,8 @@ export default function App() {
       if (reportDraft.editingReportId) {
         await api.updateReport(reportDraft.editingReportId, {
           period: reportDraft.period,
+          reportType,
+          tag,
           dueDate: reportDraft.dueDate,
           details
         });
@@ -482,6 +588,8 @@ export default function App() {
         clubId: club.id,
         clubName: club.name,
         period: reportDraft.period,
+        reportType,
+        tag,
         dueDate: reportDraft.dueDate,
         details
       });
@@ -491,7 +599,9 @@ export default function App() {
       const nextPeriod = getNextPeriod(reportDraft.period);
       setReportDraft({
         ...createReportDraft(nextPeriod),
-        clubId: String(club.id)
+        clubId: String(club.id),
+        reportType,
+        tag
       });
     }
   }
@@ -503,6 +613,8 @@ export default function App() {
       editingReportId: report.id,
       clubId: String(report.clubId),
       period: report.period,
+      reportType: report.reportType,
+      tag: report.tag,
       dueDate: report.dueDate.slice(0, 10),
       activityName: detail?.activityName ?? "",
       activityDate: detail?.activityDate?.slice(0, 10) ?? "",
@@ -513,11 +625,13 @@ export default function App() {
   }
 
   function cancelReportEdit() {
-    const clubId = reportDraft.clubId || (clubs[0] ? String(clubs[0].id) : "");
-    const period = clubId ? getAvailableReportPeriod(reports, Number(clubId)) : getNextPeriod();
+    const clubId = reportClubScope ? String(reportClubScope.id) : reportDraft.clubId || (clubs[0] ? String(clubs[0].id) : "");
+    const period = clubId ? getAvailableReportPeriod(reports, Number(clubId), reportDraft.tag) : getNextPeriod();
     setReportDraft({
       ...createReportDraft(period),
-      clubId
+      clubId,
+      reportType: reportDraft.reportType,
+      tag: reportDraft.tag
     });
   }
 
@@ -545,6 +659,30 @@ export default function App() {
 
     const created = await runAction(async () => {
       await api.createClub(payload);
+    });
+
+    if (created) {
+      setClubDraft(createClubDraft());
+    }
+  }
+
+  async function applyForClubFromForm() {
+    if (isAdmin) return;
+    const payload = {
+      code: clubDraft.code.trim().toUpperCase(),
+      name: clubDraft.name.trim(),
+      description: clubDraft.description.trim(),
+      contactEmail: clubDraft.contactEmail.trim(),
+      contactPhone: clubDraft.contactPhone.trim()
+    };
+
+    if (!payload.code || !payload.name || !payload.description || !payload.contactEmail || !payload.contactPhone) {
+      setError("Fill in club code, name, description, email, and phone.");
+      return;
+    }
+
+    const created = await runAction(async () => {
+      await api.applyToCreateClub(payload);
     });
 
     if (created) {
@@ -580,6 +718,74 @@ export default function App() {
     if (!isAdmin) return;
     await runAction(async () => {
       await api.deleteClub(id);
+    });
+  }
+
+  async function joinClub(club: Club) {
+    await runAction(async () => {
+      await api.joinClub(club.id, `Request to join ${club.name}.`);
+    });
+  }
+
+  async function approveClubApplication(id: number) {
+    if (!isAdmin) return;
+    await runAction(async () => {
+      await api.approveClubApplication(id, "Approved from admin workspace.");
+    });
+  }
+
+  async function rejectClubApplication(id: number) {
+    if (!isAdmin) return;
+    await runAction(async () => {
+      await api.rejectClubApplication(id, "Rejected from admin workspace.");
+    });
+  }
+
+  async function approveMembership(id: number) {
+    await runAction(async () => {
+      await api.approveMembership(id, "Approved by club owner.");
+    });
+  }
+
+  async function rejectMembership(id: number) {
+    await runAction(async () => {
+      await api.rejectMembership(id, "Rejected by club owner.");
+    });
+  }
+
+  async function assignTreasurer(club: Club, membership: ClubMembership) {
+    await runAction(async () => {
+      await api.assignTreasurer(club.id, {
+        memberUserId: membership.userId,
+        memberName: membership.fullName
+      });
+    });
+  }
+
+  async function demoteTreasurer(membership: ClubMembership) {
+    await runAction(async () => {
+      await api.demoteClubMember(membership.id);
+    });
+  }
+
+  async function updateUserRole(user: AuthResponse["user"], role: Role, enabled: boolean) {
+    if (!isAdmin) return;
+    const nextRoles = enabled
+      ? Array.from(new Set([...user.roles, role]))
+      : user.roles.filter((item) => item !== role);
+
+    if (nextRoles.length === 0) {
+      setError("A user must keep at least one role.");
+      return;
+    }
+
+    await runAction(async () => {
+      await api.updateUser(user.id, {
+        fullName: user.fullName,
+        email: user.email,
+        isActive: user.isActive,
+        roles: nextRoles
+      });
     });
   }
 
@@ -773,6 +979,7 @@ export default function App() {
   }
 
   function chooseDemoAccount(nextUsername: string, nextPassword: string) {
+    setAuthMode("login");
     setUsername(nextUsername);
     setPassword(nextPassword);
   }
@@ -892,21 +1099,51 @@ export default function App() {
             <p>Pick a demo account, sign in, and jump straight into the real dashboard backed by the running microservices.</p>
           </div>
           <div className="landing-login-panel">
-            <form onSubmit={handleLogin} className="login-form">
-              <label>
-                Username
-                <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
-              </label>
-              <label>
-                Password
-                <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" />
-              </label>
-              {error && <div className="alert">{error}</div>}
-              <button className="primary" type="submit" disabled={busy}>
-                <LogIn size={18} aria-hidden />
-                Sign in
-              </button>
-            </form>
+            <div className="auth-switch" role="tablist" aria-label="Authentication mode">
+              <button type="button" className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>Sign in</button>
+              <button type="button" className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>Register</button>
+            </div>
+            {authMode === "login" ? (
+              <form onSubmit={handleLogin} className="login-form">
+                <label>
+                  Username
+                  <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
+                </label>
+                <label>
+                  Password
+                  <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" />
+                </label>
+                {error && <div className="alert">{error}</div>}
+                <button className="primary" type="submit" disabled={busy}>
+                  <LogIn size={18} aria-hidden />
+                  Sign in
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleRegister} className="login-form">
+                <label>
+                  Username
+                  <input value={registerDraft.username} onChange={(event) => updateRegisterDraftField("username", event.target.value)} autoComplete="username" />
+                </label>
+                <label>
+                  Full name
+                  <input value={registerDraft.fullName} onChange={(event) => updateRegisterDraftField("fullName", event.target.value)} autoComplete="name" />
+                </label>
+                <label>
+                  Email
+                  <input value={registerDraft.email} onChange={(event) => updateRegisterDraftField("email", event.target.value)} autoComplete="email" />
+                </label>
+                <label>
+                  Password
+                  <input value={registerDraft.password} onChange={(event) => updateRegisterDraftField("password", event.target.value)} type="password" autoComplete="new-password" />
+                </label>
+                {error && <div className="alert">{error}</div>}
+                <button className="primary" type="submit" disabled={busy}>
+                  <UsersRound size={18} aria-hidden />
+                  Create member account
+                </button>
+              </form>
+            )}
             <div className="demo-row" aria-label="Demo accounts">
               <button type="button" onClick={() => chooseDemoAccount("admin@club.local", "Admin@12345")}>
                 Admin
@@ -953,6 +1190,7 @@ export default function App() {
           {canUseFinanceWorkflow && <NavButton icon={<WalletCards />} label="Finance" active={view === "finance"} onClick={() => setView("finance")} />}
           {canUseReportWorkflow && <NavButton icon={<FileSpreadsheet />} label="Exports" active={view === "exports"} onClick={() => setView("exports")} />}
           <NavButton icon={<Bell />} label="Notifications" active={view === "notifications"} onClick={() => setView("notifications")} />
+          {isAdmin && <NavButton icon={<UserRoundCog />} label="Users" active={view === "users"} onClick={() => setView("users")} />}
         </nav>
         <div className="sidebar-card">
           <span><ShieldCheck size={14} aria-hidden /> Signed in</span>
@@ -1003,8 +1241,9 @@ export default function App() {
           {view === "reports" && (
             canUseReportWorkflow ? (
               <ReportsView
-                clubs={clubs}
-                reports={reports}
+                clubs={reportClubs}
+                reports={visibleReports}
+                scopedClub={reportClubScope}
                 reportDraft={reportDraft}
                 isAdmin={isAdmin}
                 busy={busy}
@@ -1028,13 +1267,25 @@ export default function App() {
             <ClubsView
               clubs={clubs}
               users={users}
+              currentUser={auth.user}
+              managedClubs={managedClubs}
+              myMemberships={myMemberships}
+              applications={clubApplications}
               isAdmin={isAdmin}
               busy={busy}
               clubDraft={clubDraft}
               setClubDraftField={updateClubDraftField}
               createClub={createClubFromForm}
+              applyForClub={applyForClubFromForm}
               toggleClubActive={toggleClubActive}
               assignManager={assignManager}
+              joinClub={joinClub}
+              approveApplication={approveClubApplication}
+              rejectApplication={rejectClubApplication}
+              approveMembership={approveMembership}
+              rejectMembership={rejectMembership}
+              assignTreasurer={assignTreasurer}
+              demoteTreasurer={demoteTreasurer}
               deleteClub={deleteClub}
             />
           )}
@@ -1097,6 +1348,18 @@ export default function App() {
               notifications={notifications}
               markRead={(id) => runAction(() => api.markNotificationRead(id))}
             />
+          )}
+          {view === "users" && (
+            isAdmin ? (
+              <UsersView
+                users={users}
+                roles={roles}
+                busy={busy}
+                updateUserRole={updateUserRole}
+              />
+            ) : (
+              <AccessNotice title="Users are not available for this role." />
+            )
           )}
         </div>
       </main>
@@ -1241,6 +1504,7 @@ function Dashboard({
 function ReportsView(props: {
   clubs: Club[];
   reports: Report[];
+  scopedClub?: Club;
   reportDraft: ReportDraftForm;
   isAdmin: boolean;
   busy: boolean;
@@ -1297,15 +1561,29 @@ function ReportsView(props: {
         <div className="report-form-grid">
           <label>
             Club
-            <select value={props.reportDraft.clubId} onChange={(event) => props.setReportDraftField("clubId", event.target.value)} disabled={props.clubs.length === 0 || Boolean(props.reportDraft.editingReportId)}>
-              {props.clubs.length === 0 ? (
-                <option value="">No clubs loaded</option>
-              ) : (
-                props.clubs.map((club) => (
-                  <option value={club.id} key={club.id}>{club.name}</option>
-                ))
-              )}
+            {props.scopedClub ? (
+              <input value={props.scopedClub.name} readOnly />
+            ) : (
+              <select value={props.reportDraft.clubId} onChange={(event) => props.setReportDraftField("clubId", event.target.value)} disabled={props.clubs.length === 0 || Boolean(props.reportDraft.editingReportId)}>
+                {props.clubs.length === 0 ? (
+                  <option value="">No clubs loaded</option>
+                ) : (
+                  props.clubs.map((club) => (
+                    <option value={club.id} key={club.id}>{club.name}</option>
+                  ))
+                )}
+              </select>
+            )}
+          </label>
+          <label>
+            Report tag
+            <select value={props.reportDraft.tag} onChange={(event) => props.setReportDraftField("tag", event.target.value)}>
+              {reportTags.map((tag) => <option value={tag} key={tag}>{tag}</option>)}
             </select>
+          </label>
+          <label>
+            Report type
+            <input value={props.reportDraft.reportType} onChange={(event) => props.setReportDraftField("reportType", event.target.value)} placeholder="Treasury report, activity report..." />
           </label>
           <label>
             Report period
@@ -1368,6 +1646,7 @@ function ReportsView(props: {
               <div>
                 <span>{report.period}</span>
                 <h3>{report.clubName}</h3>
+                <small>{report.tag}</small>
               </div>
               <StatusBadge status={report.status} />
             </div>
@@ -1428,31 +1707,63 @@ function ReportsView(props: {
 function ClubsView({
   clubs,
   users,
+  currentUser,
+  managedClubs,
+  myMemberships,
+  applications,
   isAdmin,
   busy,
   clubDraft,
   setClubDraftField,
   createClub,
+  applyForClub,
   toggleClubActive,
   assignManager,
+  joinClub,
+  approveApplication,
+  rejectApplication,
+  approveMembership,
+  rejectMembership,
+  assignTreasurer,
+  demoteTreasurer,
   deleteClub
 }: {
   clubs: Club[];
   users: AuthResponse["user"][];
+  currentUser: AuthResponse["user"];
+  managedClubs: Club[];
+  myMemberships: ClubMembership[];
+  applications: ClubApplication[];
   isAdmin: boolean;
   busy: boolean;
   clubDraft: ClubForm;
   setClubDraftField: (field: keyof ClubForm, value: string) => void;
   createClub: () => void;
+  applyForClub: () => void;
   toggleClubActive: (club: Club) => void;
   assignManager: (club: Club, managerUserId: number) => void;
+  joinClub: (club: Club) => void;
+  approveApplication: (id: number) => void;
+  rejectApplication: (id: number) => void;
+  approveMembership: (id: number) => void;
+  rejectMembership: (id: number) => void;
+  assignTreasurer: (club: Club, membership: ClubMembership) => void;
+  demoteTreasurer: (membership: ClubMembership) => void;
   deleteClub: (id: number) => void;
 }) {
   const managers = users.filter((user) => user.roles.includes("CLUB_MANAGER"));
+  const ownedClubIds = new Set(managedClubs.map((club) => club.id));
+  const myMembershipByClub = new Map(myMemberships.map((membership) => [membership.clubId, membership]));
+  const pendingApplications = applications.filter((application) => application.status === "Submitted");
 
   function handleCreateClub(event: FormEvent) {
     event.preventDefault();
-    createClub();
+    if (isAdmin) {
+      createClub();
+      return;
+    }
+
+    applyForClub();
   }
 
   return (
@@ -1461,19 +1772,43 @@ function ClubsView({
         <div>
           <span className="section-kicker"><UsersRound size={15} aria-hidden /> Club Directory</span>
           <h2>Active Clubs</h2>
-          <p>{clubs.length} clubs with manager and contact information.</p>
+          <p>{clubs.length} clubs with ownership, membership, and treasury delegation.</p>
         </div>
       </div>
-      {isAdmin && (
-        <form className="module-form" onSubmit={handleCreateClub} aria-label="Create club">
+      {isAdmin && pendingApplications.length > 0 && (
+        <div className="workflow-strip" aria-label="Club creation applications">
+          {pendingApplications.map((application) => (
+            <article className="workflow-card" key={application.id}>
+              <div>
+                <span className="section-kicker"><Building2 size={14} aria-hidden /> Club application</span>
+                <strong>{application.name}</strong>
+                <small>{application.code} requested by {application.requesterName}</small>
+              </div>
+              <p>{application.description}</p>
+              <div className="card-actions">
+                <button type="button" onClick={() => approveApplication(application.id)} disabled={busy}>
+                  <CheckCircle2 size={16} aria-hidden />
+                  Approve
+                </button>
+                <button type="button" onClick={() => rejectApplication(application.id)} disabled={busy}>
+                  <XCircle size={16} aria-hidden />
+                  Reject
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+      {(isAdmin || managedClubs.length === 0) && (
+        <form className="module-form" onSubmit={handleCreateClub} aria-label={isAdmin ? "Create club" : "Apply to create club"}>
           <div className="module-form-head">
             <div>
               <span className="section-kicker"><Building2 size={15} aria-hidden /> Club setup</span>
-              <h3>Create club</h3>
+              <h3>{isAdmin ? "Create club" : "Apply to create a club"}</h3>
             </div>
             <button className="primary" type="submit" disabled={busy}>
               <Building2 size={18} aria-hidden />
-              Create club
+              {isAdmin ? "Create club" : "Submit application"}
             </button>
           </div>
           <div className="module-form-grid">
@@ -1502,40 +1837,152 @@ function ClubsView({
       )}
       <div className="list-grid club-grid">
         {clubs.map((club) => (
-          <article className="item-card club-card" key={club.id}>
-            <div className="club-card-head">
-              <span className="club-avatar">{club.code.slice(0, 2)}</span>
-              <div>
-                <strong>{club.name}</strong>
-                <small>{club.code}</small>
-              </div>
-            </div>
-            <p>{club.description}</p>
-            <dl>
-              <div><dt>Email</dt><dd>{club.contactEmail}</dd></div>
-              <div><dt>Phone</dt><dd>{club.contactPhone}</dd></div>
-              <div><dt>Manager</dt><dd>{club.managers.find((manager) => manager.isActive)?.managerName ?? "Unassigned"}</dd></div>
-            </dl>
-            {isAdmin && (
-              <div className="card-actions">
-                <select aria-label={`Assign manager for ${club.name}`} defaultValue="" onChange={(event) => event.target.value && assignManager(club, Number(event.target.value))} disabled={busy || managers.length === 0}>
-                  <option value="">Assign manager</option>
-                  {managers.map((manager) => (
-                    <option value={manager.id} key={manager.id}>{manager.fullName}</option>
-                  ))}
-                </select>
-                <button type="button" onClick={() => toggleClubActive(club)} disabled={busy}>
-                  {club.isActive ? "Deactivate" : "Activate"}
-                </button>
-                <button type="button" onClick={() => deleteClub(club.id)} disabled={busy}>
-                  Delete
-                </button>
-              </div>
-            )}
-          </article>
+          <ClubCard
+            key={club.id}
+            club={club}
+            currentUser={currentUser}
+            managers={managers}
+            isAdmin={isAdmin}
+            isOwner={ownedClubIds.has(club.id)}
+            busy={busy}
+            myMembership={myMembershipByClub.get(club.id)}
+            assignManager={assignManager}
+            toggleClubActive={toggleClubActive}
+            deleteClub={deleteClub}
+            joinClub={joinClub}
+            approveMembership={approveMembership}
+            rejectMembership={rejectMembership}
+            assignTreasurer={assignTreasurer}
+            demoteTreasurer={demoteTreasurer}
+          />
         ))}
       </div>
     </section>
+  );
+}
+
+function ClubCard({
+  club,
+  currentUser,
+  managers,
+  isAdmin,
+  isOwner,
+  busy,
+  myMembership,
+  assignManager,
+  toggleClubActive,
+  deleteClub,
+  joinClub,
+  approveMembership,
+  rejectMembership,
+  assignTreasurer,
+  demoteTreasurer
+}: {
+  club: Club;
+  currentUser: AuthResponse["user"];
+  managers: AuthResponse["user"][];
+  isAdmin: boolean;
+  isOwner: boolean;
+  busy: boolean;
+  myMembership?: ClubMembership;
+  assignManager: (club: Club, managerUserId: number) => void;
+  toggleClubActive: (club: Club) => void;
+  deleteClub: (id: number) => void;
+  joinClub: (club: Club) => void;
+  approveMembership: (id: number) => void;
+  rejectMembership: (id: number) => void;
+  assignTreasurer: (club: Club, membership: ClubMembership) => void;
+  demoteTreasurer: (membership: ClubMembership) => void;
+}) {
+  const activeManager = club.managers.find((manager) => manager.isActive);
+  const members = club.members ?? [];
+  const pendingMembers = members.filter((member) => member.status === "Pending");
+  const approvedMembers = members.filter((member) => member.status === "Approved");
+  const treasurers = approvedMembers.filter((member) => member.role === "TREASURER");
+  const canManageMembers = isAdmin || isOwner;
+  const canJoin = !isAdmin && !isOwner && !myMembership && club.isActive;
+  const isCurrentUserInClub = currentUser.id === activeManager?.managerUserId || Boolean(myMembership);
+
+  return (
+    <article className="item-card club-card">
+      <div className="club-card-head">
+        <span className="club-avatar">{club.code.slice(0, 2)}</span>
+        <div>
+          <strong>{club.name}</strong>
+          <small>{club.code}</small>
+        </div>
+        <StatusBadgeLike status={club.isActive ? "Active" : "Inactive"} />
+      </div>
+      <p>{club.description}</p>
+      <dl>
+        <div><dt>Email</dt><dd>{club.contactEmail}</dd></div>
+        <div><dt>Phone</dt><dd>{club.contactPhone}</dd></div>
+        <div><dt>Owner</dt><dd>{activeManager?.managerName ?? "Unassigned"}</dd></div>
+        <div><dt>Members</dt><dd>{approvedMembers.length} approved / {pendingMembers.length} pending</dd></div>
+      </dl>
+      {!isAdmin && (
+        <div className="membership-state">
+          {isOwner && <span className="badge success">Owner</span>}
+          {myMembership && <span className={`badge ${myMembership.status === "Approved" ? "success" : myMembership.status === "Pending" ? "info" : "danger"}`}>{myMembership.role} / {myMembership.status}</span>}
+          {!isCurrentUserInClub && <span className="muted-text">Not joined</span>}
+        </div>
+      )}
+      {canJoin && (
+        <button className="secondary" type="button" onClick={() => joinClub(club)} disabled={busy}>
+          <UsersRound size={16} aria-hidden />
+          Request to join
+        </button>
+      )}
+      {isAdmin && (
+        <div className="card-actions">
+          <select aria-label={`Assign manager for ${club.name}`} defaultValue="" onChange={(event) => event.target.value && assignManager(club, Number(event.target.value))} disabled={busy || managers.length === 0}>
+            <option value="">Assign owner</option>
+            {managers.map((manager) => (
+              <option value={manager.id} key={manager.id}>{manager.fullName}</option>
+            ))}
+          </select>
+          <button type="button" onClick={() => toggleClubActive(club)} disabled={busy}>
+            {club.isActive ? "Deactivate" : "Activate"}
+          </button>
+          <button type="button" onClick={() => deleteClub(club.id)} disabled={busy}>
+            Delete
+          </button>
+        </div>
+      )}
+      {canManageMembers && (
+        <div className="member-panel">
+          <div className="member-panel-head">
+            <strong>Membership workflow</strong>
+            <span>{treasurers.length}/2 treasurers</span>
+          </div>
+          {pendingMembers.length > 0 && (
+            <div className="member-list">
+              {pendingMembers.map((member) => (
+                <div className="member-row" key={member.id}>
+                  <span>{member.fullName}</span>
+                  <small>{member.requestMessage ?? "No message"}</small>
+                  <button type="button" onClick={() => approveMembership(member.id)} disabled={busy}>Approve</button>
+                  <button type="button" onClick={() => rejectMembership(member.id)} disabled={busy}>Reject</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="member-list">
+            {approvedMembers.map((member) => (
+              <div className="member-row" key={member.id}>
+                <span>{member.fullName}</span>
+                <StatusBadgeLike status={member.role} />
+                {member.role === "TREASURER" ? (
+                  <button type="button" onClick={() => demoteTreasurer(member)} disabled={busy}>Make member</button>
+                ) : (
+                  <button type="button" onClick={() => assignTreasurer(club, member)} disabled={busy || treasurers.length >= 2}>Assign treasurer</button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </article>
   );
 }
 
@@ -1951,6 +2398,63 @@ function NotificationsView({ notifications, markRead }: { notifications: Notific
   );
 }
 
+function UsersView({
+  users,
+  roles,
+  busy,
+  updateUserRole
+}: {
+  users: AuthResponse["user"][];
+  roles: RoleRecord[];
+  busy: boolean;
+  updateUserRole: (user: AuthResponse["user"], role: Role, enabled: boolean) => void;
+}) {
+  const roleOptions = (roles.length > 0 ? roles.map((role) => role.name) : [
+    "ADMIN",
+    "SYSTEM_ADMIN",
+    "STUDENT_AFFAIRS_ADMIN",
+    "CLUB_MANAGER",
+    "TREASURER",
+    "CLUB_MEMBER"
+  ]) as Role[];
+
+  return (
+    <section className="surface">
+      <div className="surface-head">
+        <div>
+          <span className="section-kicker"><UserRoundCog size={15} aria-hidden /> Access control</span>
+          <h2>Users & Roles</h2>
+          <p>{users.length} accounts with editable role assignments.</p>
+        </div>
+      </div>
+      <div className="user-role-list">
+        {users.map((user) => (
+          <article className="user-role-card" key={user.id}>
+            <div>
+              <strong>{user.fullName}</strong>
+              <small>{user.email}</small>
+              <StatusBadgeLike status={user.isActive && !user.isLocked ? "Active" : "Locked"} />
+            </div>
+            <div className="role-toggle-grid">
+              {roleOptions.map((role) => (
+                <label key={role} className="role-toggle">
+                  <input
+                    type="checkbox"
+                    checked={user.roles.includes(role)}
+                    disabled={busy}
+                    onChange={(event) => updateUserRole(user, role, event.currentTarget.checked)}
+                  />
+                  <span>{role.split("_").join(" ")}</span>
+                </label>
+              ))}
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ReportList({ reports }: { reports: Report[] }) {
   if (reports.length === 0) return <p className="empty">No reports loaded.</p>;
   return (
@@ -2054,7 +2558,8 @@ function viewLabel(view: View) {
     kpi: "KPI",
     finance: "Finance",
     exports: "Exports",
-    notifications: "Notifications"
+    notifications: "Notifications",
+    users: "Users"
   }[view];
 }
 
@@ -2067,6 +2572,7 @@ function viewSubtitle(view: View) {
     kpi: "Compare club performance with a clearer ranking view.",
     finance: "Review proposals, requested budgets, and settlement progress.",
     exports: "Create and monitor consolidated PDF or Excel exports.",
-    notifications: "Resolve workflow signals before they pile up."
+    notifications: "Resolve workflow signals before they pile up.",
+    users: "Manage account roles, access, and workflow ownership."
   }[view];
 }

@@ -5,6 +5,8 @@ public sealed record ReportResponse(
     int ClubId,
     string ClubName,
     string Period,
+    string ReportType,
+    string Tag,
     string Status,
     int CreatedByUserId,
     DateOnly DueDate,
@@ -46,11 +48,15 @@ public sealed record CreateReportRequest(
     int ClubId,
     string ClubName,
     string Period,
+    string? ReportType,
+    string? Tag,
     DateOnly DueDate,
     IReadOnlyCollection<UpsertReportDetailRequest> Details);
 
 public sealed record UpdateReportRequest(
     string Period,
+    string? ReportType,
+    string? Tag,
     DateOnly DueDate,
     IReadOnlyCollection<UpsertReportDetailRequest> Details);
 

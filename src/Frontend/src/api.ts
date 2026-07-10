@@ -16,6 +16,42 @@ export type AuthResponse = {
   user: UserSummary;
 };
 
+export type RoleRecord = {
+  id: number;
+  name: Role;
+};
+
+export type ClubMembership = {
+  id: number;
+  clubId: number;
+  clubName: string;
+  userId: number;
+  fullName: string;
+  role: "MEMBER" | "TREASURER";
+  status: "Pending" | "Approved" | "Rejected";
+  requestMessage?: string;
+  requestedAtUtc: string;
+  reviewedAtUtc?: string;
+  reviewedByUserId?: number;
+};
+
+export type ClubApplication = {
+  id: number;
+  requesterUserId: number;
+  requesterName: string;
+  code: string;
+  name: string;
+  description: string;
+  contactEmail: string;
+  contactPhone: string;
+  status: "Submitted" | "Approved" | "Rejected";
+  reviewNote?: string;
+  createdClubId?: number;
+  submittedAtUtc: string;
+  reviewedAtUtc?: string;
+  reviewedByUserId?: number;
+};
+
 export type Club = {
   id: number;
   code: string;
@@ -32,6 +68,7 @@ export type Club = {
     endedAtUtc?: string;
     isActive: boolean;
   }>;
+  members: ClubMembership[];
 };
 
 export type ReportStatus = "Draft" | "Submitted" | "Under Review" | "Approved" | "Rejected";
@@ -51,6 +88,8 @@ export type Report = {
   clubId: number;
   clubName: string;
   period: string;
+  reportType: string;
+  tag: string;
   status: ReportStatus;
   createdByUserId: number;
   dueDate: string;
@@ -198,12 +237,106 @@ export class ApiClient {
     });
   }
 
+  async register(payload: { username: string; fullName: string; email: string; password: string }) {
+    return this.request<AuthResponse>("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  }
+
   async getUsers() {
     return this.request<UserSummary[]>("/api/users/");
   }
 
+  async updateUser(id: number, payload: {
+    fullName: string;
+    email: string;
+    isActive: boolean;
+    roles: Role[];
+  }) {
+    return this.request<UserSummary>(`/api/users/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async getRoles() {
+    return this.request<RoleRecord[]>("/api/roles/");
+  }
+
   async getClubs() {
     return this.request<Club[]>("/api/clubs/");
+  }
+
+  async getManagedClubs() {
+    return this.request<Club[]>("/api/clubs/me/managed");
+  }
+
+  async getMyClubMemberships() {
+    return this.request<ClubMembership[]>("/api/clubs/me/memberships");
+  }
+
+  async getClubApplications() {
+    return this.request<ClubApplication[]>("/api/clubs/applications");
+  }
+
+  async applyToCreateClub(payload: {
+    code: string;
+    name: string;
+    description: string;
+    contactEmail: string;
+    contactPhone: string;
+  }) {
+    return this.request<ClubApplication>("/api/clubs/applications", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async approveClubApplication(id: number, note?: string) {
+    return this.request<ClubApplication>(`/api/clubs/applications/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ note })
+    });
+  }
+
+  async rejectClubApplication(id: number, note?: string) {
+    return this.request<ClubApplication>(`/api/clubs/applications/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ note })
+    });
+  }
+
+  async joinClub(id: number, message?: string) {
+    return this.request<ClubMembership>(`/api/clubs/${id}/join`, {
+      method: "POST",
+      body: JSON.stringify({ message })
+    });
+  }
+
+  async approveMembership(id: number, note?: string) {
+    return this.request<ClubMembership>(`/api/clubs/memberships/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ note })
+    });
+  }
+
+  async rejectMembership(id: number, note?: string) {
+    return this.request<ClubMembership>(`/api/clubs/memberships/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ note })
+    });
+  }
+
+  async assignTreasurer(clubId: number, payload: { memberUserId: number; memberName: string }) {
+    return this.request<ClubMembership>(`/api/clubs/${clubId}/treasurers`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async demoteClubMember(membershipId: number) {
+    return this.request<ClubMembership>(`/api/clubs/memberships/${membershipId}/member`, { method: "POST" });
   }
 
   async createClub(payload: {
@@ -304,6 +437,8 @@ export class ApiClient {
     clubId: number;
     clubName: string;
     period: string;
+    reportType?: string;
+    tag?: string;
     dueDate: string;
     details: Array<{
       activityName: string;
@@ -321,6 +456,8 @@ export class ApiClient {
 
   async updateReport(id: number, payload: {
     period: string;
+    reportType?: string;
+    tag?: string;
     dueDate: string;
     details: Array<{
       id?: number;

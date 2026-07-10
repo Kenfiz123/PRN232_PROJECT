@@ -2,6 +2,12 @@ namespace AuthService.Contracts;
 
 public sealed record LoginRequest(string Username, string Password);
 
+public sealed record RegisterRequest(
+    string Username,
+    string FullName,
+    string Email,
+    string Password);
+
 public sealed record AuthResponse(
     string AccessToken,
     DateTimeOffset ExpiresAtUtc,

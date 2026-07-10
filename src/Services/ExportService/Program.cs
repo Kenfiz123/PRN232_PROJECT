@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using ClubReportHub.Shared.Auth;
+using ClubReportHub.Shared.Data;
 using ClubReportHub.Shared.Events;
 using ClubReportHub.Shared.Messaging;
 using ExportService.Contracts;
@@ -151,7 +152,8 @@ exports.MapDelete("/{id:int}", async (int id, ExportDbContext db) =>
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ExportDbContext>();
-    await db.Database.MigrateAsync();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseStartup");
+    await db.ApplyMigrationsWithRetryAsync(logger);
 }
 
 EnsureHangfireSchema(connectionString);

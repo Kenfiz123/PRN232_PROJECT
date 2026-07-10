@@ -146,6 +146,7 @@ export type BudgetProposal = {
     receiptUrl: string;
     status: string;
     submittedAtUtc: string;
+    reviewNote?: string;
   }>;
 };
 
@@ -205,6 +206,43 @@ export class ApiClient {
     return this.request<Club[]>("/api/clubs/");
   }
 
+  async createClub(payload: {
+    code: string;
+    name: string;
+    description: string;
+    contactEmail: string;
+    contactPhone: string;
+  }) {
+    return this.request<Club>("/api/clubs/", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async updateClub(id: number, payload: {
+    name: string;
+    description: string;
+    contactEmail: string;
+    contactPhone: string;
+    isActive: boolean;
+  }) {
+    return this.request<Club>(`/api/clubs/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async deleteClub(id: number) {
+    return this.request<void>(`/api/clubs/${id}`, { method: "DELETE" });
+  }
+
+  async assignClubManager(id: number, payload: { managerUserId: number; managerName: string }) {
+    return this.request<Club>(`/api/clubs/${id}/managers`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  }
+
   async getReports() {
     return this.request<{ total: number; items: Report[] }>("/api/reports/?page=1&pageSize=20");
   }
@@ -237,6 +275,31 @@ export class ApiClient {
     });
   }
 
+  async updateActivity(id: number, payload: {
+    title: string;
+    description: string;
+    startTimeUtc: string;
+    endTimeUtc: string;
+    location: string;
+    status: string;
+  }) {
+    return this.request<ActivityItem>(`/api/activities/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async addActivityParticipant(id: number, payload: { userId?: number; fullName?: string }) {
+    return this.request<ActivityItem>(`/api/activities/${id}/participants`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async completeActivity(id: number) {
+    return this.request<ActivityItem>(`/api/activities/${id}/complete`, { method: "PATCH" });
+  }
+
   async createReport(payload: {
     clubId: number;
     clubName: string;
@@ -252,6 +315,24 @@ export class ApiClient {
   }) {
     return this.request<Report>("/api/reports/", {
       method: "POST",
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async updateReport(id: number, payload: {
+    period: string;
+    dueDate: string;
+    details: Array<{
+      id?: number;
+      activityName: string;
+      activityDate: string;
+      description: string;
+      participantCount: number;
+      outcome: string;
+    }>;
+  }) {
+    return this.request<Report>(`/api/reports/${id}`, {
+      method: "PUT",
       body: JSON.stringify(payload)
     });
   }
@@ -302,6 +383,23 @@ export class ApiClient {
     });
   }
 
+  async downloadExport(id: number) {
+    const response = await fetch(`${baseUrl}/api/exports/${id}/download`, {
+      headers: this.authHeaders()
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new ApiError(response.status, text || `Request failed with HTTP ${response.status}`);
+    }
+
+    return response.blob();
+  }
+
+  async deleteExport(id: number) {
+    return this.request<void>(`/api/exports/${id}`, { method: "DELETE" });
+  }
+
   async getBudgetProposals() {
     return this.request<BudgetProposal[]>("/api/finance/proposals");
   }
@@ -327,6 +425,27 @@ export class ApiClient {
     });
   }
 
+  async rejectBudgetProposal(id: number, note: string) {
+    return this.request<BudgetProposal>(`/api/finance/proposals/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ note })
+    });
+  }
+
+  async createSettlement(id: number, payload: { totalSpent: number; receiptUrl: string }) {
+    return this.request<BudgetProposal>(`/api/finance/proposals/${id}/settlements`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async approveSettlement(id: number, note: string) {
+    return this.request<void>(`/api/finance/settlements/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ note })
+    });
+  }
+
   async getNotifications(user: UserSummary) {
     const role = user.roles.find((item) => item === "ADMIN" || item === "STUDENT_AFFAIRS_ADMIN" || item === "SYSTEM_ADMIN")
       ?? user.roles[0]
@@ -347,8 +466,8 @@ export class ApiClient {
       headers.set("Content-Type", "application/json");
     }
 
-    if (this.token) {
-      headers.set("Authorization", `Bearer ${this.token}`);
+    for (const [key, value] of this.authHeaders()) {
+      headers.set(key, value);
     }
 
     const response = await fetch(`${baseUrl}${path}`, {
@@ -366,5 +485,14 @@ export class ApiClient {
     }
 
     return (await response.json()) as T;
+  }
+
+  private authHeaders() {
+    const headers = new Headers();
+    if (this.token) {
+      headers.set("Authorization", `Bearer ${this.token}`);
+    }
+
+    return headers;
   }
 }

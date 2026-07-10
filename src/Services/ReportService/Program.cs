@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using ClubReportHub.Shared.Auth;
+using ClubReportHub.Shared.Data;
 using ClubReportHub.Shared.Events;
 using ClubReportHub.Shared.Messaging;
 using Hangfire;
@@ -537,7 +538,8 @@ deadlines.MapPost("/", async (DeadlineRequest request, ReportDbContext db) =>
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ReportDbContext>();
-    await db.Database.MigrateAsync();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseStartup");
+    await db.ApplyMigrationsWithRetryAsync(logger);
     await ReportSeeder.SeedAsync(db);
 }
 

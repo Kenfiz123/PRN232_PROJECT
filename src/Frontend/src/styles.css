@@ -1185,7 +1185,8 @@ nav {
   margin-bottom: 16px;
 }
 
-.report-form {
+.report-form,
+.module-form {
   margin-bottom: 18px;
   padding: 16px;
   display: grid;
@@ -1195,32 +1196,75 @@ nav {
   background: linear-gradient(180deg, #ffffff, #f8fbff);
 }
 
-.report-form-head {
+.report-form-head,
+.module-form-head {
   display: flex;
   justify-content: space-between;
   gap: 14px;
   align-items: flex-start;
 }
 
-.report-form-head > div {
+.report-form-head > div,
+.module-form-head > div {
   min-width: 0;
   display: grid;
   gap: 5px;
 }
 
-.report-form-head h3 {
+.report-form-head h3,
+.module-form-head h3 {
   color: #111827;
   font-size: 18px;
 }
 
-.report-form-grid {
+.report-form-grid,
+.module-form-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
-.report-form-grid .span-2 {
+.report-form-grid .span-2,
+.module-form-grid .span-2 {
   grid-column: span 3;
+}
+
+.card-actions,
+.finance-actions,
+.activity-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.card-actions select,
+.activity-actions input,
+.settlement-form input {
+  width: auto;
+  min-width: 180px;
+}
+
+.activity-actions,
+.settlement-form,
+.settlement-row {
+  grid-column: 1 / -1;
+}
+
+.settlement-form,
+.settlement-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settlement-row {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
 }
 
 .report-board {
@@ -1927,17 +1971,20 @@ dd {
 
   .report-board,
   .report-form-grid,
+  .module-form-grid,
   .budget-grid,
   .list-grid {
     grid-template-columns: 1fr;
   }
 
-  .report-form-head {
+  .report-form-head,
+  .module-form-head {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .report-form-grid .span-2 {
+  .report-form-grid .span-2,
+  .module-form-grid .span-2 {
     grid-column: auto;
   }
 

@@ -1,4 +1,5 @@
 using ClubReportHub.Shared.Auth;
+using ClubReportHub.Shared.Data;
 using ClubReportHub.Shared.Events;
 using ClubReportHub.Shared.Messaging;
 using ClubService.Contracts;
@@ -160,7 +161,8 @@ clubs.MapPost("/{id:int}/managers", async (int id, AssignManagerRequest request,
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ClubDbContext>();
-    await db.Database.MigrateAsync();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseStartup");
+    await db.ApplyMigrationsWithRetryAsync(logger);
     await ClubSeeder.SeedAsync(db);
 }
 

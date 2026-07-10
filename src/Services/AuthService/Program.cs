@@ -2,6 +2,7 @@ using AuthService.Contracts;
 using AuthService.Data;
 using AuthService.Models;
 using ClubReportHub.Shared.Auth;
+using ClubReportHub.Shared.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -173,7 +174,8 @@ rolesGroup.MapPost("/", async (CreateRoleRequest request, AuthDbContext db) =>
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
-    await db.Database.MigrateAsync();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseStartup");
+    await db.ApplyMigrationsWithRetryAsync(logger);
     await AuthSeeder.SeedAsync(db, scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>());
 }
 

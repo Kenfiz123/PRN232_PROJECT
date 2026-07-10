@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using ClubReportHub.Shared.Auth;
+using ClubReportHub.Shared.Data;
 using ClubReportHub.Shared.Events;
 using ClubReportHub.Shared.Messaging;
 using FinanceService.Contracts;
@@ -259,7 +260,8 @@ finance.MapGet("/transactions", async (int? clubId, FinanceDbContext db) =>
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<FinanceDbContext>();
-    await db.Database.EnsureCreatedAsync();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseStartup");
+    await db.EnsureCreatedWithRetryAsync(logger);
     await FinanceSeeder.SeedAsync(db);
 }
 

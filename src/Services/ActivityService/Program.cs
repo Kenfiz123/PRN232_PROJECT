@@ -3,6 +3,7 @@ using ActivityService.Contracts;
 using ActivityService.Data;
 using ActivityService.Models;
 using ClubReportHub.Shared.Auth;
+using ClubReportHub.Shared.Data;
 using ClubReportHub.Shared.Events;
 using ClubReportHub.Shared.Messaging;
 using Microsoft.EntityFrameworkCore;
@@ -190,7 +191,8 @@ activities.MapPatch("/{id:int}/complete", async (int id, ActivityDbContext db) =
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ActivityDbContext>();
-    await db.Database.EnsureCreatedAsync();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseStartup");
+    await db.EnsureCreatedWithRetryAsync(logger);
     await ActivitySeeder.SeedAsync(db);
 }
 

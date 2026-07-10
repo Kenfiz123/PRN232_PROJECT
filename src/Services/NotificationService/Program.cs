@@ -1,4 +1,5 @@
 using ClubReportHub.Shared.Auth;
+using ClubReportHub.Shared.Data;
 using Microsoft.EntityFrameworkCore;
 using NotificationService.Consumers;
 using NotificationService.Contracts;
@@ -97,7 +98,8 @@ notifications.MapPut("/read-all", async (int? recipientUserId, string? recipient
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<NotificationDbContext>();
-    await db.Database.MigrateAsync();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseStartup");
+    await db.ApplyMigrationsWithRetryAsync(logger);
     await NotificationSeeder.SeedAsync(db);
 }
 

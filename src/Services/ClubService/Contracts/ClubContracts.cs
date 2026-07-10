@@ -28,6 +28,9 @@ public sealed record ClubMembershipResponse(
     string Role,
     string Status,
     string? RequestMessage,
+    string PersonalInfo,
+    string Goals,
+    string Reason,
     DateTimeOffset RequestedAtUtc,
     DateTimeOffset? ReviewedAtUtc,
     int? ReviewedByUserId);
@@ -39,6 +42,8 @@ public sealed record ClubCreationApplicationResponse(
     string Code,
     string Name,
     string Description,
+    string Purpose,
+    string Reason,
     string ContactEmail,
     string ContactPhone,
     string Status,
@@ -64,7 +69,11 @@ public sealed record UpdateClubRequest(
 
 public sealed record AssignManagerRequest(int ManagerUserId, string ManagerName);
 
-public sealed record JoinClubRequest(string? Message);
+public sealed record JoinClubRequest(
+    string? Message,
+    string PersonalInfo,
+    string Goals,
+    string Reason);
 
 public sealed record ReviewClubMembershipRequest(string? Note);
 
@@ -74,6 +83,8 @@ public sealed record CreateClubApplicationRequest(
     string Code,
     string Name,
     string Description,
+    string Purpose,
+    string Reason,
     string ContactEmail,
     string ContactPhone);
 

@@ -1026,6 +1026,7 @@ nav {
 
 .signal-list,
 .activity-list {
+  min-width: 0;
   display: grid;
   gap: 10px;
 }
@@ -1033,6 +1034,7 @@ nav {
 .signal-row,
 .activity-row {
   min-width: 0;
+  overflow: hidden;
   display: grid;
   gap: 12px;
   align-items: center;
@@ -1156,8 +1158,13 @@ nav {
 }
 
 .activity-row {
-  grid-template-columns: 36px minmax(160px, 1fr) minmax(220px, 1.1fr) auto;
+  grid-template-columns: 36px minmax(0, 1.05fr) minmax(0, 1fr) max-content;
   padding: 13px;
+}
+
+.activity-row > .badge {
+  justify-self: end;
+  max-width: 100%;
 }
 
 .activity-meta {
@@ -1183,6 +1190,25 @@ nav {
 .inline-field {
   max-width: 760px;
   margin-bottom: 16px;
+}
+
+.role-note {
+  margin-bottom: 16px;
+  padding: 13px 14px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #f8fbff, #eef6ff);
+  color: #344054;
+  line-height: 1.5;
+  animation: viewIn 360ms var(--ease-out) both;
+}
+
+.role-note svg {
+  margin-top: 2px;
+  color: var(--indigo);
 }
 
 .auth-switch {
@@ -1491,6 +1517,83 @@ nav {
   box-shadow: 0 12px 28px rgba(23, 32, 51, 0.06);
 }
 
+.application-card {
+  align-content: start;
+}
+
+.application-card-head {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.application-card-head strong {
+  overflow-wrap: anywhere;
+  font-size: 17px;
+}
+
+.application-card-head small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.application-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.application-detail-grid > div {
+  min-width: 0;
+  padding: 11px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.application-detail-grid span,
+.application-detail-list dt,
+.member-request-detail dt {
+  color: #6b7688;
+  font-size: 12px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.application-detail-grid strong,
+.application-detail-grid small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.application-detail-grid small {
+  color: var(--muted);
+}
+
+.application-detail-list,
+.member-request-detail {
+  padding: 10px;
+  border: 1px solid #e6edf6;
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.application-detail-list div,
+.member-request-detail div {
+  display: grid;
+  gap: 4px;
+}
+
+.application-detail-list dd,
+.member-request-detail dd {
+  text-align: left;
+  color: #344054;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .item-card {
   padding: 16px;
   display: grid;
@@ -1581,6 +1684,49 @@ dd {
   flex-wrap: wrap;
 }
 
+.join-request-form {
+  padding: 12px;
+  display: grid;
+  gap: 11px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 251, 255, 0.98)),
+    #ffffff;
+}
+
+.join-request-form textarea {
+  min-height: 76px;
+}
+
+.join-request-form button {
+  justify-self: start;
+}
+
+.join-request-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.join-request-head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--teal);
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.join-request-head small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 760;
+}
+
 .member-panel {
   padding: 12px;
   display: grid;
@@ -1615,6 +1761,24 @@ dd {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
+  flex-wrap: wrap;
+}
+
+.member-row-detail {
+  align-items: stretch;
+}
+
+.member-request-copy {
+  min-width: min(100%, 280px);
+  flex: 1 1 320px;
+  display: grid;
+  gap: 7px;
+}
+
+.member-request-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -2047,11 +2211,13 @@ dd {
   }
 
   .activity-row {
-    grid-template-columns: 36px minmax(0, 1fr) auto;
+    grid-template-columns: 36px minmax(0, 1fr);
   }
 
-  .activity-meta {
-    grid-column: 2 / -1;
+  .activity-meta,
+  .activity-row > .badge {
+    grid-column: 2;
+    justify-self: start;
   }
 
   .export-card {
@@ -2108,6 +2274,7 @@ dd {
   .report-board,
   .report-form-grid,
   .module-form-grid,
+  .application-detail-grid,
   .budget-grid,
   .list-grid {
     grid-template-columns: 1fr;

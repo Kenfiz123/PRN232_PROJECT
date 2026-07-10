@@ -30,6 +30,9 @@ export type ClubMembership = {
   role: "MEMBER" | "TREASURER";
   status: "Pending" | "Approved" | "Rejected";
   requestMessage?: string;
+  personalInfo: string;
+  goals: string;
+  reason: string;
   requestedAtUtc: string;
   reviewedAtUtc?: string;
   reviewedByUserId?: number;
@@ -42,6 +45,8 @@ export type ClubApplication = {
   code: string;
   name: string;
   description: string;
+  purpose: string;
+  reason: string;
   contactEmail: string;
   contactPhone: string;
   status: "Submitted" | "Approved" | "Rejected";
@@ -284,6 +289,8 @@ export class ApiClient {
     code: string;
     name: string;
     description: string;
+    purpose: string;
+    reason: string;
     contactEmail: string;
     contactPhone: string;
   }) {
@@ -307,10 +314,10 @@ export class ApiClient {
     });
   }
 
-  async joinClub(id: number, message?: string) {
+  async joinClub(id: number, payload: { message?: string; personalInfo: string; goals: string; reason: string }) {
     return this.request<ClubMembership>(`/api/clubs/${id}/join`, {
       method: "POST",
-      body: JSON.stringify({ message })
+      body: JSON.stringify(payload)
     });
   }
 

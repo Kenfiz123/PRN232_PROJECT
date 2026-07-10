@@ -221,6 +221,11 @@ reports.MapGet("/{id:int}", async (int id, ReportDbContext db) =>
 
 reports.MapPost("/", async (CreateReportRequest request, ReportDbContext db, ClaimsPrincipal user) =>
 {
+    if (!CanAuthorReports(user))
+    {
+        return Results.Forbid();
+    }
+
     var tag = NormalizeReportTag(request.Tag, request.ReportType);
     var reportType = NormalizeReportType(request.ReportType, tag);
     var period = request.Period.Trim();
@@ -250,6 +255,11 @@ reports.MapPost("/", async (CreateReportRequest request, ReportDbContext db, Cla
 
 reports.MapPut("/{id:int}", async (int id, UpdateReportRequest request, ReportDbContext db, ClaimsPrincipal user) =>
 {
+    if (!CanAuthorReports(user))
+    {
+        return Results.Forbid();
+    }
+
     var report = await db.Reports.Include(x => x.Details).Include(x => x.Attachments).Include(x => x.Feedback).FirstOrDefaultAsync(x => x.Id == id);
     if (report is null)
     {
@@ -288,6 +298,11 @@ reports.MapPost("/{id:int}/attachments", async (
     IOptions<ReportAttachmentOptions> attachmentOptions,
     ClaimsPrincipal user) =>
 {
+    if (!CanAuthorReports(user))
+    {
+        return Results.Forbid();
+    }
+
     var report = await db.Reports.Include(x => x.Details).Include(x => x.Attachments).Include(x => x.Feedback).FirstOrDefaultAsync(x => x.Id == id);
     if (report is null)
     {
@@ -330,6 +345,11 @@ reports.MapPost("/{id:int}/attachments/upload", async (
     ClaimsPrincipal user,
     CancellationToken cancellationToken) =>
 {
+    if (!CanAuthorReports(user))
+    {
+        return Results.Forbid();
+    }
+
     var report = await db.Reports
         .Include(x => x.Details)
         .Include(x => x.Attachments)
@@ -403,6 +423,11 @@ reports.MapGet("/{id:int}/attachments/{attachmentId:int}/download", async (
 
 reports.MapPost("/{id:int}/submit", async (int id, ReportDbContext db, IEventBus eventBus, ClaimsPrincipal user, CancellationToken cancellationToken) =>
 {
+    if (!CanAuthorReports(user))
+    {
+        return Results.Forbid();
+    }
+
     var report = await db.Reports.Include(x => x.Details).Include(x => x.Attachments).Include(x => x.Feedback).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     if (report is null)
     {
@@ -608,6 +633,12 @@ static async Task AddAuditAsync(ReportDbContext db, int reportId, string action,
         Description = description
     });
     await db.SaveChangesAsync(cancellationToken);
+}
+
+static bool CanAuthorReports(ClaimsPrincipal user)
+{
+    return user.IsInRole(AuthRoles.ClubManager)
+        || user.IsInRole(AuthRoles.Treasurer);
 }
 
 static string NormalizeReportTag(string? tag, string? reportType)

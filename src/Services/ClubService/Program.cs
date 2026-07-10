@@ -95,9 +95,13 @@ clubs.MapPost("/applications", async (
     var userId = user.GetUserId();
     var code = request.Code.Trim().ToUpperInvariant();
 
-    if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(request.Name))
+    if (string.IsNullOrWhiteSpace(code)
+        || string.IsNullOrWhiteSpace(request.Name)
+        || string.IsNullOrWhiteSpace(request.Description)
+        || string.IsNullOrWhiteSpace(request.Purpose)
+        || string.IsNullOrWhiteSpace(request.Reason))
     {
-        return Results.BadRequest(new { message = "Club code and name are required." });
+        return Results.BadRequest(new { message = "Club code, name, description, purpose, and reason are required." });
     }
 
     if (await db.ClubManagerAssignments.AnyAsync(x => x.ManagerUserId == userId && x.IsActive))
@@ -122,6 +126,8 @@ clubs.MapPost("/applications", async (
         Code = code,
         Name = request.Name.Trim(),
         Description = request.Description.Trim(),
+        Purpose = request.Purpose.Trim(),
+        Reason = request.Reason.Trim(),
         ContactEmail = request.ContactEmail.Trim(),
         ContactPhone = request.ContactPhone.Trim()
     };
@@ -396,6 +402,11 @@ clubs.MapPost("/{id:int}/join", async (
         return Results.Conflict(new { message = "Club owner is already attached to this club." });
     }
 
+    if (string.IsNullOrWhiteSpace(request.PersonalInfo) || string.IsNullOrWhiteSpace(request.Goals) || string.IsNullOrWhiteSpace(request.Reason))
+    {
+        return Results.BadRequest(new { message = "Personal info, goals, and reason are required to join a club." });
+    }
+
     var existing = club.Memberships.FirstOrDefault(x => x.UserId == userId);
     if (existing is not null)
     {
@@ -404,6 +415,9 @@ clubs.MapPost("/{id:int}/join", async (
             existing.Status = ClubMembershipStatuses.Pending;
             existing.Role = ClubMemberRoles.Member;
             existing.RequestMessage = request.Message?.Trim();
+            existing.PersonalInfo = request.PersonalInfo.Trim();
+            existing.Goals = request.Goals.Trim();
+            existing.Reason = request.Reason.Trim();
             existing.RequestedAtUtc = DateTimeOffset.UtcNow;
             existing.ReviewedAtUtc = null;
             existing.ReviewedByUserId = null;
@@ -420,6 +434,9 @@ clubs.MapPost("/{id:int}/join", async (
         UserId = userId,
         FullName = user.GetDisplayName(),
         RequestMessage = request.Message?.Trim(),
+        PersonalInfo = request.PersonalInfo.Trim(),
+        Goals = request.Goals.Trim(),
+        Reason = request.Reason.Trim(),
         Role = ClubMemberRoles.Member,
         Status = ClubMembershipStatuses.Pending
     };
@@ -628,6 +645,9 @@ static ClubMembershipResponse ToMembershipResponseWithClub(ClubMembership member
         membership.Role,
         membership.Status,
         membership.RequestMessage,
+        membership.PersonalInfo,
+        membership.Goals,
+        membership.Reason,
         membership.RequestedAtUtc,
         membership.ReviewedAtUtc,
         membership.ReviewedByUserId);
@@ -642,6 +662,8 @@ static ClubCreationApplicationResponse ToApplicationResponse(ClubCreationApplica
         application.Code,
         application.Name,
         application.Description,
+        application.Purpose,
+        application.Reason,
         application.ContactEmail,
         application.ContactPhone,
         application.Status,

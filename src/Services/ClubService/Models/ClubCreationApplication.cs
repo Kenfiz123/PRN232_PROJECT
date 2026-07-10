@@ -8,6 +8,8 @@ public sealed class ClubCreationApplication
     public string Code { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string Purpose { get; set; } = string.Empty;
+    public string Reason { get; set; } = string.Empty;
     public string ContactEmail { get; set; } = string.Empty;
     public string ContactPhone { get; set; } = string.Empty;
     public string Status { get; set; } = ClubApplicationStatuses.Submitted;

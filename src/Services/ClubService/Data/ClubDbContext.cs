@@ -44,6 +44,9 @@ public sealed class ClubDbContext(DbContextOptions<ClubDbContext> options) : DbC
             entity.Property(x => x.Role).HasMaxLength(40);
             entity.Property(x => x.Status).HasMaxLength(40);
             entity.Property(x => x.RequestMessage).HasMaxLength(1000);
+            entity.Property(x => x.PersonalInfo).HasMaxLength(1000);
+            entity.Property(x => x.Goals).HasMaxLength(1000);
+            entity.Property(x => x.Reason).HasMaxLength(1000);
         });
 
         modelBuilder.Entity<ClubCreationApplication>(entity =>
@@ -54,6 +57,8 @@ public sealed class ClubDbContext(DbContextOptions<ClubDbContext> options) : DbC
             entity.Property(x => x.Code).HasMaxLength(30);
             entity.Property(x => x.Name).HasMaxLength(200);
             entity.Property(x => x.Description).HasMaxLength(1000);
+            entity.Property(x => x.Purpose).HasMaxLength(1000);
+            entity.Property(x => x.Reason).HasMaxLength(1000);
             entity.Property(x => x.ContactEmail).HasMaxLength(200);
             entity.Property(x => x.ContactPhone).HasMaxLength(40);
             entity.Property(x => x.Status).HasMaxLength(40);

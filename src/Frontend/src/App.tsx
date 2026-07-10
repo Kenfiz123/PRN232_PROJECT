@@ -69,8 +69,16 @@ type ClubForm = {
   code: string;
   name: string;
   description: string;
+  purpose: string;
+  reason: string;
   contactEmail: string;
   contactPhone: string;
+};
+
+type JoinClubForm = {
+  personalInfo: string;
+  goals: string;
+  reason: string;
 };
 
 type RegisterForm = {
@@ -116,6 +124,7 @@ const authStorageKey = "clubreport.auth";
 const sessionExpiredMessage = "Session expired. Please sign in again.";
 const adminRoles = ["ADMIN", "SYSTEM_ADMIN", "STUDENT_AFFAIRS_ADMIN"];
 const reportWorkflowRoles = [...adminRoles, "CLUB_MANAGER"];
+const reportAuthorRoles = ["CLUB_MANAGER", "TREASURER"];
 const financeWorkflowRoles = [...reportWorkflowRoles, "TREASURER"];
 const reportTags = ["Activity report", "Treasury report", "Event report", "Monthly summary"];
 
@@ -123,9 +132,13 @@ function hasAnyRole(user: AuthResponse["user"] | null | undefined, allowedRoles:
   return user?.roles.some((role) => allowedRoles.includes(role)) ?? false;
 }
 
-function canAccessView(view: View, access: { reports: boolean; finance: boolean; admin: boolean }) {
-  if (view === "reports" || view === "exports") {
+function canAccessView(view: View, access: { reports: boolean; finance: boolean; exports: boolean; admin: boolean }) {
+  if (view === "reports") {
     return access.reports;
+  }
+
+  if (view === "exports") {
+    return access.exports;
   }
 
   if (view === "finance") {
@@ -221,8 +234,18 @@ function createClubDraft(): ClubForm {
     code: "",
     name: "",
     description: "",
+    purpose: "",
+    reason: "",
     contactEmail: "",
     contactPhone: ""
+  };
+}
+
+function createJoinClubDraft(): JoinClubForm {
+  return {
+    personalInfo: "",
+    goals: "",
+    reason: ""
   };
 }
 
@@ -291,27 +314,29 @@ export default function App() {
   const [clubDraft, setClubDraft] = useState<ClubForm>(() => createClubDraft());
   const [activityDraft, setActivityDraft] = useState<ActivityForm>(() => createActivityDraft());
   const [financeDraft, setFinanceDraft] = useState<FinanceForm>(() => createFinanceDraft());
+  const [joinDrafts, setJoinDrafts] = useState<Record<number, JoinClubForm>>({});
   const [participantDrafts, setParticipantDrafts] = useState<Record<number, string>>({});
   const [settlementDrafts, setSettlementDrafts] = useState<Record<number, SettlementForm>>({});
 
   const api = useMemo(() => new ApiClient(auth?.accessToken), [auth?.accessToken]);
   const isAdmin = hasAnyRole(auth?.user, adminRoles);
+  const canManageUsers = hasAnyRole(auth?.user, ["ADMIN", "SYSTEM_ADMIN"]);
   const treasurerMembership = myMemberships.find((membership) => membership.status === "Approved" && membership.role === "TREASURER");
   const scopedTreasurerClub = treasurerMembership ? clubs.find((club) => club.id === treasurerMembership.clubId) : undefined;
   const scopedManagedClub = managedClubs[0];
-  const reportClubScope = !isAdmin && !hasAnyRole(auth?.user, reportWorkflowRoles)
-    ? scopedManagedClub ?? scopedTreasurerClub
-    : undefined;
-  const canUseReportWorkflow = hasAnyRole(auth?.user, reportWorkflowRoles) || Boolean(scopedManagedClub || scopedTreasurerClub);
+  const reportClubScope = scopedManagedClub ?? scopedTreasurerClub;
+  const canAuthorReports = hasAnyRole(auth?.user, reportAuthorRoles) || Boolean(scopedManagedClub || scopedTreasurerClub);
+  const canUseReportWorkflow = isAdmin || canAuthorReports;
   const canUseFinanceWorkflow = hasAnyRole(auth?.user, financeWorkflowRoles) || Boolean(scopedTreasurerClub);
+  const canUseExports = hasAnyRole(auth?.user, reportWorkflowRoles);
   const reportClubs = reportClubScope ? [reportClubScope] : clubs;
   const visibleReports = reportClubScope ? reports.filter((report) => report.clubId === reportClubScope.id) : reports;
 
   useEffect(() => {
-    if (auth && !canAccessView(view, { reports: canUseReportWorkflow, finance: canUseFinanceWorkflow, admin: isAdmin })) {
+    if (auth && !canAccessView(view, { reports: canUseReportWorkflow, finance: canUseFinanceWorkflow, exports: canUseExports, admin: canManageUsers })) {
       setView("dashboard");
     }
-  }, [auth?.accessToken, view, canUseReportWorkflow, canUseFinanceWorkflow, isAdmin]);
+  }, [auth?.accessToken, view, canUseReportWorkflow, canUseFinanceWorkflow, canUseExports, canManageUsers]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0 });
@@ -370,7 +395,9 @@ export default function App() {
 
   async function loadAll(client: ApiClient, user: AuthResponse["user"]) {
     const canLoadFinance = hasAnyRole(user, financeWorkflowRoles);
-    const canLoadUsers = hasAnyRole(user, adminRoles);
+    const canLoadUsers = hasAnyRole(user, ["ADMIN", "SYSTEM_ADMIN"]);
+    const canLoadApplications = hasAnyRole(user, adminRoles);
+    const canLoadExports = hasAnyRole(user, reportWorkflowRoles);
     const [clubRows, managedRows, membershipRows, reportPage, reportSummary, activityRows, kpiRows, budgetRows, exportPage, notificationRows, userRows, roleRows, applicationRows] = await Promise.all([
       client.getClubs(),
       client.getManagedClubs(),
@@ -380,11 +407,11 @@ export default function App() {
       client.getActivities(),
       client.getKpiLeaderboard("2026-07"),
       canLoadFinance ? client.getBudgetProposals() : Promise.resolve([]),
-      hasAnyRole(user, reportWorkflowRoles) ? client.getExports() : Promise.resolve({ total: 0, items: [] }),
+      canLoadExports ? client.getExports() : Promise.resolve({ total: 0, items: [] }),
       client.getNotifications(user),
       canLoadUsers ? client.getUsers() : Promise.resolve([]),
       canLoadUsers ? client.getRoles() : Promise.resolve([]),
-      canLoadUsers ? client.getClubApplications() : Promise.resolve([])
+      canLoadApplications ? client.getClubApplications() : Promise.resolve([])
     ]);
     setClubs(clubRows);
     setManagedClubs(managedRows);
@@ -480,6 +507,7 @@ export default function App() {
     setNotifications([]);
     setUsers([]);
     setRoles([]);
+    setJoinDrafts({});
     setError(message ?? null);
   }
 
@@ -537,7 +565,7 @@ export default function App() {
   }
 
   async function createReportFromDraft() {
-    if (!canUseReportWorkflow) return;
+    if (!canAuthorReports) return;
 
     const club = reportClubScope ?? clubs.find((item) => String(item.id) === reportDraft.clubId);
     const participantCount = Number(reportDraft.participantCount);
@@ -672,12 +700,14 @@ export default function App() {
       code: clubDraft.code.trim().toUpperCase(),
       name: clubDraft.name.trim(),
       description: clubDraft.description.trim(),
+      purpose: clubDraft.purpose.trim(),
+      reason: clubDraft.reason.trim(),
       contactEmail: clubDraft.contactEmail.trim(),
       contactPhone: clubDraft.contactPhone.trim()
     };
 
-    if (!payload.code || !payload.name || !payload.description || !payload.contactEmail || !payload.contactPhone) {
-      setError("Fill in club code, name, description, email, and phone.");
+    if (!payload.code || !payload.name || !payload.description || !payload.purpose || !payload.reason || !payload.contactEmail || !payload.contactPhone) {
+      setError("Fill in club code, name, description, purpose, reason, email, and phone.");
       return;
     }
 
@@ -721,10 +751,34 @@ export default function App() {
     });
   }
 
+  function updateJoinDraft(clubId: number, field: keyof JoinClubForm, value: string) {
+    setJoinDrafts((current) => ({
+      ...current,
+      [clubId]: {
+        ...(current[clubId] ?? createJoinClubDraft()),
+        [field]: value
+      }
+    }));
+  }
+
   async function joinClub(club: Club) {
+    const draft = joinDrafts[club.id] ?? createJoinClubDraft();
+    const payload = {
+      message: `Request to join ${club.name}.`,
+      personalInfo: draft.personalInfo.trim(),
+      goals: draft.goals.trim(),
+      reason: draft.reason.trim()
+    };
+
+    if (!payload.personalInfo || !payload.goals || !payload.reason) {
+      setError("Fill in personal info, goals, and reason before requesting to join.");
+      return;
+    }
+
     await runAction(async () => {
-      await api.joinClub(club.id, `Request to join ${club.name}.`);
+      await api.joinClub(club.id, payload);
     });
+    setJoinDrafts((current) => ({ ...current, [club.id]: createJoinClubDraft() }));
   }
 
   async function approveClubApplication(id: number) {
@@ -790,7 +844,7 @@ export default function App() {
   }
 
   async function uploadEvidence(reportId: number, file: File) {
-    if (!canUseReportWorkflow) return;
+    if (!canAuthorReports) return;
     await runAction(async () => {
       await api.uploadAttachment(reportId, file);
     });
@@ -1188,9 +1242,9 @@ export default function App() {
           <NavButton icon={<CalendarDays />} label="Activities" active={view === "activities"} onClick={() => setView("activities")} />
           <NavButton icon={<Trophy />} label="KPI" active={view === "kpi"} onClick={() => setView("kpi")} />
           {canUseFinanceWorkflow && <NavButton icon={<WalletCards />} label="Finance" active={view === "finance"} onClick={() => setView("finance")} />}
-          {canUseReportWorkflow && <NavButton icon={<FileSpreadsheet />} label="Exports" active={view === "exports"} onClick={() => setView("exports")} />}
+          {canUseExports && <NavButton icon={<FileSpreadsheet />} label="Exports" active={view === "exports"} onClick={() => setView("exports")} />}
           <NavButton icon={<Bell />} label="Notifications" active={view === "notifications"} onClick={() => setView("notifications")} />
-          {isAdmin && <NavButton icon={<UserRoundCog />} label="Users" active={view === "users"} onClick={() => setView("users")} />}
+          {canManageUsers && <NavButton icon={<UserRoundCog />} label="Users" active={view === "users"} onClick={() => setView("users")} />}
         </nav>
         <div className="sidebar-card">
           <span><ShieldCheck size={14} aria-hidden /> Signed in</span>
@@ -1234,6 +1288,7 @@ export default function App() {
               activities={activities}
               budgetProposals={budgetProposals}
               canUseReportWorkflow={canUseReportWorkflow}
+              canAuthorReports={canAuthorReports}
               canUseFinanceWorkflow={canUseFinanceWorkflow}
               onNavigate={setView}
             />
@@ -1246,6 +1301,7 @@ export default function App() {
                 scopedClub={reportClubScope}
                 reportDraft={reportDraft}
                 isAdmin={isAdmin}
+                canAuthorReports={canAuthorReports}
                 busy={busy}
                 feedback={draftFeedback}
                 setFeedback={setDraftFeedback}
@@ -1270,6 +1326,7 @@ export default function App() {
               currentUser={auth.user}
               managedClubs={managedClubs}
               myMemberships={myMemberships}
+              joinDrafts={joinDrafts}
               applications={clubApplications}
               isAdmin={isAdmin}
               busy={busy}
@@ -1280,6 +1337,7 @@ export default function App() {
               toggleClubActive={toggleClubActive}
               assignManager={assignManager}
               joinClub={joinClub}
+              setJoinDraftField={updateJoinDraft}
               approveApplication={approveClubApplication}
               rejectApplication={rejectClubApplication}
               approveMembership={approveMembership}
@@ -1296,7 +1354,7 @@ export default function App() {
               activityDraft={activityDraft}
               participantDrafts={participantDrafts}
               busy={busy}
-              canCreateActivity={canUseReportWorkflow}
+              canCreateActivity={canAuthorReports}
               setActivityDraftField={updateActivityDraftField}
               saveActivity={saveActivity}
               editActivity={editActivity}
@@ -1330,7 +1388,7 @@ export default function App() {
             )
           )}
           {view === "exports" && (
-            canUseReportWorkflow ? (
+            canUseExports ? (
               <ExportsView
                 exportsList={exportsList}
                 busy={busy}
@@ -1350,7 +1408,7 @@ export default function App() {
             />
           )}
           {view === "users" && (
-            isAdmin ? (
+            canManageUsers ? (
               <UsersView
                 users={users}
                 roles={roles}
@@ -1375,6 +1433,7 @@ function Dashboard({
   activities,
   budgetProposals,
   canUseReportWorkflow,
+  canAuthorReports,
   canUseFinanceWorkflow,
   onNavigate
 }: {
@@ -1385,6 +1444,7 @@ function Dashboard({
   activities: ActivityItem[];
   budgetProposals: BudgetProposal[];
   canUseReportWorkflow: boolean;
+  canAuthorReports: boolean;
   canUseFinanceWorkflow: boolean;
   onNavigate: (view: View) => void;
 }) {
@@ -1411,7 +1471,7 @@ function Dashboard({
             {canUseReportWorkflow && (
               <button className="primary" type="button" onClick={() => onNavigate("reports")}>
                 <FileText size={18} aria-hidden />
-                Review reports
+                {canAuthorReports ? "Create report" : "Review reports"}
               </button>
             )}
             <button className="secondary" type="button" onClick={() => onNavigate("activities")}>
@@ -1507,6 +1567,7 @@ function ReportsView(props: {
   scopedClub?: Club;
   reportDraft: ReportDraftForm;
   isAdmin: boolean;
+  canAuthorReports: boolean;
   busy: boolean;
   feedback: string;
   setFeedback: (value: string) => void;
@@ -1540,102 +1601,111 @@ function ReportsView(props: {
           <p>{props.reports.length} reports across draft, review, and approval states.</p>
         </div>
       </div>
-      <form className="report-form" onSubmit={handleCreateReport} aria-label="Create report">
-        <div className="report-form-head">
-          <div>
-            <span className="section-kicker"><FileText size={15} aria-hidden /> New report</span>
-            <h3>{props.reportDraft.editingReportId ? "Edit report content" : "Enter report content"}</h3>
-          </div>
-          <div className="split-actions">
-            {props.reportDraft.editingReportId && (
-              <button type="button" onClick={props.cancelReportEdit} disabled={props.busy}>
-                Cancel edit
+      {props.canAuthorReports ? (
+        <form className="report-form" onSubmit={handleCreateReport} aria-label="Create report">
+          <div className="report-form-head">
+            <div>
+              <span className="section-kicker"><FileText size={15} aria-hidden /> New report</span>
+              <h3>{props.reportDraft.editingReportId ? "Edit report content" : "Enter report content"}</h3>
+            </div>
+            <div className="split-actions">
+              {props.reportDraft.editingReportId && (
+                <button type="button" onClick={props.cancelReportEdit} disabled={props.busy}>
+                  Cancel edit
+                </button>
+              )}
+              <button className="primary" type="submit" disabled={props.busy || props.clubs.length === 0}>
+                <FileText size={18} aria-hidden />
+                {props.reportDraft.editingReportId ? "Save report" : "Create report"}
               </button>
-            )}
-            <button className="primary" type="submit" disabled={props.busy || props.clubs.length === 0}>
-              <FileText size={18} aria-hidden />
-              {props.reportDraft.editingReportId ? "Save report" : "Create report"}
-            </button>
+            </div>
           </div>
-        </div>
-        <div className="report-form-grid">
-          <label>
-            Club
-            {props.scopedClub ? (
-              <input value={props.scopedClub.name} readOnly />
-            ) : (
-              <select value={props.reportDraft.clubId} onChange={(event) => props.setReportDraftField("clubId", event.target.value)} disabled={props.clubs.length === 0 || Boolean(props.reportDraft.editingReportId)}>
-                {props.clubs.length === 0 ? (
-                  <option value="">No clubs loaded</option>
-                ) : (
-                  props.clubs.map((club) => (
-                    <option value={club.id} key={club.id}>{club.name}</option>
-                  ))
-                )}
+          <div className="report-form-grid">
+            <label>
+              Club
+              {props.scopedClub ? (
+                <input value={props.scopedClub.name} readOnly />
+              ) : (
+                <select value={props.reportDraft.clubId} onChange={(event) => props.setReportDraftField("clubId", event.target.value)} disabled={props.clubs.length === 0 || Boolean(props.reportDraft.editingReportId)}>
+                  {props.clubs.length === 0 ? (
+                    <option value="">No clubs loaded</option>
+                  ) : (
+                    props.clubs.map((club) => (
+                      <option value={club.id} key={club.id}>{club.name}</option>
+                    ))
+                  )}
+                </select>
+              )}
+            </label>
+            <label>
+              Report tag
+              <select value={props.reportDraft.tag} onChange={(event) => props.setReportDraftField("tag", event.target.value)}>
+                {reportTags.map((tag) => <option value={tag} key={tag}>{tag}</option>)}
               </select>
-            )}
-          </label>
-          <label>
-            Report tag
-            <select value={props.reportDraft.tag} onChange={(event) => props.setReportDraftField("tag", event.target.value)}>
-              {reportTags.map((tag) => <option value={tag} key={tag}>{tag}</option>)}
-            </select>
-          </label>
-          <label>
-            Report type
-            <input value={props.reportDraft.reportType} onChange={(event) => props.setReportDraftField("reportType", event.target.value)} placeholder="Treasury report, activity report..." />
-          </label>
-          <label>
-            Report period
-            <input
-              type="month"
-              value={props.reportDraft.period}
-              onInput={(event) => props.setReportDraftField("period", event.currentTarget.value)}
-              onChange={(event) => props.setReportDraftField("period", event.target.value)}
-            />
-          </label>
-          <label>
-            Due date
-            <input
-              type="date"
-              value={props.reportDraft.dueDate}
-              onInput={(event) => props.setReportDraftField("dueDate", event.currentTarget.value)}
-              onChange={(event) => props.setReportDraftField("dueDate", event.target.value)}
-            />
-          </label>
-          <label>
-            Activity name
-            <input value={props.reportDraft.activityName} onChange={(event) => props.setReportDraftField("activityName", event.target.value)} placeholder="Monthly workshop, tournament, seminar..." />
-          </label>
-          <label>
-            Activity date
-            <input
-              type="date"
-              value={props.reportDraft.activityDate}
-              onInput={(event) => props.setReportDraftField("activityDate", event.currentTarget.value)}
-              onChange={(event) => props.setReportDraftField("activityDate", event.target.value)}
-            />
-          </label>
-          <label>
-            Participants
-            <input type="number" min="0" value={props.reportDraft.participantCount} onChange={(event) => props.setReportDraftField("participantCount", event.target.value)} />
-          </label>
-          <label className="span-2">
-            Report description
-            <textarea value={props.reportDraft.description} onChange={(event) => props.setReportDraftField("description", event.target.value)} placeholder="What happened, who joined, and what evidence is attached?" />
-          </label>
-          <label className="span-2">
-            Outcome
-            <textarea value={props.reportDraft.outcome} onChange={(event) => props.setReportDraftField("outcome", event.target.value)} placeholder="Result, impact, lessons learned, or follow-up actions." />
-          </label>
+            </label>
+            <label>
+              Report type
+              <input value={props.reportDraft.reportType} onChange={(event) => props.setReportDraftField("reportType", event.target.value)} placeholder="Treasury report, activity report..." />
+            </label>
+            <label>
+              Report period
+              <input
+                type="month"
+                value={props.reportDraft.period}
+                onInput={(event) => props.setReportDraftField("period", event.currentTarget.value)}
+                onChange={(event) => props.setReportDraftField("period", event.target.value)}
+              />
+            </label>
+            <label>
+              Due date
+              <input
+                type="date"
+                value={props.reportDraft.dueDate}
+                onInput={(event) => props.setReportDraftField("dueDate", event.currentTarget.value)}
+                onChange={(event) => props.setReportDraftField("dueDate", event.target.value)}
+              />
+            </label>
+            <label>
+              Activity name
+              <input value={props.reportDraft.activityName} onChange={(event) => props.setReportDraftField("activityName", event.target.value)} placeholder="Monthly workshop, tournament, seminar..." />
+            </label>
+            <label>
+              Activity date
+              <input
+                type="date"
+                value={props.reportDraft.activityDate}
+                onInput={(event) => props.setReportDraftField("activityDate", event.currentTarget.value)}
+                onChange={(event) => props.setReportDraftField("activityDate", event.target.value)}
+              />
+            </label>
+            <label>
+              Participants
+              <input type="number" min="0" value={props.reportDraft.participantCount} onChange={(event) => props.setReportDraftField("participantCount", event.target.value)} />
+            </label>
+            <label className="span-2">
+              Report description
+              <textarea value={props.reportDraft.description} onChange={(event) => props.setReportDraftField("description", event.target.value)} placeholder="What happened, who joined, and what evidence is attached?" />
+            </label>
+            <label className="span-2">
+              Outcome
+              <textarea value={props.reportDraft.outcome} onChange={(event) => props.setReportDraftField("outcome", event.target.value)} placeholder="Result, impact, lessons learned, or follow-up actions." />
+            </label>
+          </div>
+        </form>
+      ) : (
+        <div className="role-note">
+          <ShieldCheck size={17} aria-hidden />
+          <span>Student Affairs/Admin reviews submitted reports here; club owners and treasurers create reports from their own club workspace.</span>
         </div>
-      </form>
-      <div className="feedback-row inline-field">
+      )}
+      {props.isAdmin && (
+        <div className="feedback-row inline-field">
         <label>
           Rejection feedback
           <input value={props.feedback} onChange={(event) => props.setFeedback(event.target.value)} />
         </label>
-      </div>
+        </div>
+      )}
       {props.reports.length === 0 ? (
         <p className="empty">No reports loaded.</p>
       ) : (
@@ -1657,25 +1727,27 @@ function ReportsView(props: {
             </div>
             <p>{report.details[0]?.outcome ?? "No outcome recorded yet."}</p>
             <div className="report-actions">
-              <label className="icon-upload" title="Upload evidence">
-                <Upload size={16} aria-hidden />
-                <span className="sr-only">Upload evidence</span>
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,application/pdf,.xlsx"
-                  disabled={props.busy}
-                  onChange={(event) => {
-                    handleEvidenceChange(report.id, event.currentTarget.files);
-                    event.currentTarget.value = "";
-                  }}
-                />
-              </label>
-              {(report.status === "Draft" || report.status === "Rejected") && (
+              {props.canAuthorReports && (
+                <label className="icon-upload" title="Upload evidence">
+                  <Upload size={16} aria-hidden />
+                  <span className="sr-only">Upload evidence</span>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,application/pdf,.xlsx"
+                    disabled={props.busy}
+                    onChange={(event) => {
+                      handleEvidenceChange(report.id, event.currentTarget.files);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+              )}
+              {props.canAuthorReports && (report.status === "Draft" || report.status === "Rejected") && (
                 <button type="button" onClick={() => props.editReport(report)} title="Edit report content" disabled={props.busy}>
                   Edit
                 </button>
               )}
-              {(report.status === "Draft" || report.status === "Rejected") && (
+              {props.canAuthorReports && (report.status === "Draft" || report.status === "Rejected") && (
                 <button type="button" onClick={() => props.submit(report.id)} title="Submit report" disabled={props.busy}>
                   <Send size={16} aria-hidden />
                 </button>
@@ -1710,6 +1782,7 @@ function ClubsView({
   currentUser,
   managedClubs,
   myMemberships,
+  joinDrafts,
   applications,
   isAdmin,
   busy,
@@ -1720,6 +1793,7 @@ function ClubsView({
   toggleClubActive,
   assignManager,
   joinClub,
+  setJoinDraftField,
   approveApplication,
   rejectApplication,
   approveMembership,
@@ -1733,6 +1807,7 @@ function ClubsView({
   currentUser: AuthResponse["user"];
   managedClubs: Club[];
   myMemberships: ClubMembership[];
+  joinDrafts: Record<number, JoinClubForm>;
   applications: ClubApplication[];
   isAdmin: boolean;
   busy: boolean;
@@ -1743,6 +1818,7 @@ function ClubsView({
   toggleClubActive: (club: Club) => void;
   assignManager: (club: Club, managerUserId: number) => void;
   joinClub: (club: Club) => void;
+  setJoinDraftField: (clubId: number, field: keyof JoinClubForm, value: string) => void;
   approveApplication: (id: number) => void;
   rejectApplication: (id: number) => void;
   approveMembership: (id: number) => void;
@@ -1778,13 +1854,29 @@ function ClubsView({
       {isAdmin && pendingApplications.length > 0 && (
         <div className="workflow-strip" aria-label="Club creation applications">
           {pendingApplications.map((application) => (
-            <article className="workflow-card" key={application.id}>
-              <div>
+            <article className="workflow-card application-card" key={application.id}>
+              <div className="application-card-head">
                 <span className="section-kicker"><Building2 size={14} aria-hidden /> Club application</span>
                 <strong>{application.name}</strong>
                 <small>{application.code} requested by {application.requesterName}</small>
               </div>
-              <p>{application.description}</p>
+              <div className="application-detail-grid">
+                <div>
+                  <span>Contact</span>
+                  <strong>{application.contactEmail}</strong>
+                  <small>{application.contactPhone}</small>
+                </div>
+                <div>
+                  <span>Submitted</span>
+                  <strong>{new Date(application.submittedAtUtc).toLocaleDateString()}</strong>
+                  <small>{application.status}</small>
+                </div>
+              </div>
+              <dl className="application-detail-list">
+                <div><dt>Description</dt><dd>{application.description || "Not provided"}</dd></div>
+                <div><dt>Purpose</dt><dd>{application.purpose || "Not provided"}</dd></div>
+                <div><dt>Reason</dt><dd>{application.reason || "Not provided"}</dd></div>
+              </dl>
               <div className="card-actions">
                 <button type="button" onClick={() => approveApplication(application.id)} disabled={busy}>
                   <CheckCircle2 size={16} aria-hidden />
@@ -1832,6 +1924,18 @@ function ClubsView({
               Description
               <textarea value={clubDraft.description} onChange={(event) => setClubDraftField("description", event.target.value)} placeholder="Club mission, activities, and ownership notes." />
             </label>
+            {!isAdmin && (
+              <>
+                <label className="span-2">
+                  Purpose
+                  <textarea value={clubDraft.purpose} onChange={(event) => setClubDraftField("purpose", event.target.value)} placeholder="What value will this club bring to students and campus life?" />
+                </label>
+                <label className="span-2">
+                  Reason
+                  <textarea value={clubDraft.reason} onChange={(event) => setClubDraftField("reason", event.target.value)} placeholder="Why should Student Affairs approve this club now?" />
+                </label>
+              </>
+            )}
           </div>
         </form>
       )}
@@ -1846,10 +1950,12 @@ function ClubsView({
             isOwner={ownedClubIds.has(club.id)}
             busy={busy}
             myMembership={myMembershipByClub.get(club.id)}
+            joinDraft={joinDrafts[club.id] ?? createJoinClubDraft()}
             assignManager={assignManager}
             toggleClubActive={toggleClubActive}
             deleteClub={deleteClub}
             joinClub={joinClub}
+            setJoinDraftField={setJoinDraftField}
             approveMembership={approveMembership}
             rejectMembership={rejectMembership}
             assignTreasurer={assignTreasurer}
@@ -1869,10 +1975,12 @@ function ClubCard({
   isOwner,
   busy,
   myMembership,
+  joinDraft,
   assignManager,
   toggleClubActive,
   deleteClub,
   joinClub,
+  setJoinDraftField,
   approveMembership,
   rejectMembership,
   assignTreasurer,
@@ -1885,10 +1993,12 @@ function ClubCard({
   isOwner: boolean;
   busy: boolean;
   myMembership?: ClubMembership;
+  joinDraft: JoinClubForm;
   assignManager: (club: Club, managerUserId: number) => void;
   toggleClubActive: (club: Club) => void;
   deleteClub: (id: number) => void;
   joinClub: (club: Club) => void;
+  setJoinDraftField: (clubId: number, field: keyof JoinClubForm, value: string) => void;
   approveMembership: (id: number) => void;
   rejectMembership: (id: number) => void;
   assignTreasurer: (club: Club, membership: ClubMembership) => void;
@@ -1928,10 +2038,31 @@ function ClubCard({
         </div>
       )}
       {canJoin && (
-        <button className="secondary" type="button" onClick={() => joinClub(club)} disabled={busy}>
-          <UsersRound size={16} aria-hidden />
-          Request to join
-        </button>
+        <form className="join-request-form" onSubmit={(event) => {
+          event.preventDefault();
+          joinClub(club);
+        }}>
+          <div className="join-request-head">
+            <span><UsersRound size={15} aria-hidden /> Join request</span>
+            <small>Sent to the club owner for review</small>
+          </div>
+          <label>
+            Personal info
+            <textarea value={joinDraft.personalInfo} onChange={(event) => setJoinDraftField(club.id, "personalInfo", event.target.value)} placeholder="Student ID, class, phone, current skills..." />
+          </label>
+          <label>
+            Goals
+            <textarea value={joinDraft.goals} onChange={(event) => setJoinDraftField(club.id, "goals", event.target.value)} placeholder="What do you want to learn or contribute?" />
+          </label>
+          <label>
+            Reason
+            <textarea value={joinDraft.reason} onChange={(event) => setJoinDraftField(club.id, "reason", event.target.value)} placeholder="Why this club fits you." />
+          </label>
+          <button className="secondary" type="submit" disabled={busy}>
+            <Send size={16} aria-hidden />
+            Request to join
+          </button>
+        </form>
       )}
       {isAdmin && (
         <div className="card-actions">
@@ -1958,11 +2089,20 @@ function ClubCard({
           {pendingMembers.length > 0 && (
             <div className="member-list">
               {pendingMembers.map((member) => (
-                <div className="member-row" key={member.id}>
-                  <span>{member.fullName}</span>
-                  <small>{member.requestMessage ?? "No message"}</small>
-                  <button type="button" onClick={() => approveMembership(member.id)} disabled={busy}>Approve</button>
-                  <button type="button" onClick={() => rejectMembership(member.id)} disabled={busy}>Reject</button>
+                <div className="member-row member-row-detail" key={member.id}>
+                  <div className="member-request-copy">
+                    <span>{member.fullName}</span>
+                    <small>{member.requestMessage ?? "No message"}</small>
+                    <dl className="member-request-detail">
+                      <div><dt>Personal info</dt><dd>{member.personalInfo || "Not provided"}</dd></div>
+                      <div><dt>Goals</dt><dd>{member.goals || "Not provided"}</dd></div>
+                      <div><dt>Reason</dt><dd>{member.reason || "Not provided"}</dd></div>
+                    </dl>
+                  </div>
+                  <div className="member-request-actions">
+                    <button type="button" onClick={() => approveMembership(member.id)} disabled={busy}>Approve</button>
+                    <button type="button" onClick={() => rejectMembership(member.id)} disabled={busy}>Reject</button>
+                  </div>
                 </div>
               ))}
             </div>

@@ -21,7 +21,7 @@ public static class AuthSeeder
             db,
             passwordHasher,
             username: "admin@club.local",
-            fullName: "System Administrator",
+            fullName: "Quản trị hệ thống",
             email: "admin@club.local",
             password: "Admin@12345",
             roles: [AuthRoles.Admin]);
@@ -30,7 +30,7 @@ public static class AuthSeeder
             db,
             passwordHasher,
             username: "manager@club.local",
-            fullName: "Demo Club Manager",
+            fullName: "Chủ nhiệm câu lạc bộ",
             email: "manager@club.local",
             password: "Manager@12345",
             roles: [AuthRoles.ClubManager]);
@@ -39,7 +39,7 @@ public static class AuthSeeder
             db,
             passwordHasher,
             username: "studentaffairs@club.local",
-            fullName: "Student Affairs Admin",
+            fullName: "Quản trị công tác sinh viên",
             email: "studentaffairs@club.local",
             password: "Admin@12345",
             roles: [AuthRoles.StudentAffairsAdmin]);
@@ -48,7 +48,7 @@ public static class AuthSeeder
             db,
             passwordHasher,
             username: "treasurer@club.local",
-            fullName: "Demo Club Treasurer",
+            fullName: "Thủ quỹ câu lạc bộ",
             email: "treasurer@club.local",
             password: "Treasurer@12345",
             roles: [AuthRoles.Treasurer]);
@@ -57,7 +57,7 @@ public static class AuthSeeder
             db,
             passwordHasher,
             username: "student@club.local",
-            fullName: "Demo Club Member",
+            fullName: "Thành viên câu lạc bộ",
             email: "student@club.local",
             password: "Student@12345",
             roles: [AuthRoles.ClubMember]);
@@ -86,6 +86,21 @@ public static class AuthSeeder
             .FirstOrDefaultAsync(x => x.Username == username);
         if (existing is not null)
         {
+            existing.FullName = fullName;
+            existing.Email = email;
+            existing.IsActive = true;
+
+            var existingRoleNames = existing.UserRoles.Select(x => x.Role.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var missingRoleNames = roles.Where(role => !existingRoleNames.Contains(role)).ToArray();
+            if (missingRoleNames.Length > 0)
+            {
+                var missingRoles = await db.Roles.Where(x => missingRoleNames.Contains(x.Name)).ToListAsync();
+                foreach (var role in missingRoles)
+                {
+                    db.UserRoles.Add(new UserRole { UserId = existing.Id, RoleId = role.Id });
+                }
+            }
+
             return;
         }
 

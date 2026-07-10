@@ -188,8 +188,8 @@ public sealed class ExportJob(
                     column.Item().Text($"Requested by: {request.RequestedByName}");
                     column.Item().Text($"Generated at UTC: {DateTimeOffset.UtcNow:u}");
                     column.Item().LineHorizontal(1);
-                    column.Item().Text("Demo export content").SemiBold();
-                    column.Item().Text("The production integration point can replace this generated summary with aggregated report data from Report Service.");
+                    column.Item().Text("Nội dung xuất báo cáo").SemiBold();
+                    column.Item().Text("Điểm tích hợp production có thể thay phần tóm tắt này bằng dữ liệu báo cáo đã tổng hợp từ Report Service.");
                 });
                 page.Footer().AlignRight().Text(text =>
                 {

@@ -20,7 +20,7 @@
    docker compose up --build
    ```
 
-3. Wait until SQL Server and RabbitMQ health checks pass. The services run EF Core migrations automatically at startup and seed demo data.
+3. Wait until SQL Server and RabbitMQ health checks pass. The services run EF Core migrations automatically at startup and preserve login accounts.
 
 4. Open `http://localhost:3000`.
 
@@ -60,4 +60,12 @@ Create a new migration after model changes:
 
 ```powershell
 dotnet ef migrations add MigrationName --project src/Services/ReportService/ReportService.csproj --startup-project src/Services/ReportService/ReportService.csproj --output-dir Migrations
+```
+
+## Reset operational data
+
+Keep `ClubReportHub_Auth` and clear clubs, activities, reports, finance, exports, and notifications:
+
+```powershell
+Get-Content .\docs\reset-operational-data.sql | docker exec -i clubreport-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "ClubReportHub!2026" -C -b
 ```

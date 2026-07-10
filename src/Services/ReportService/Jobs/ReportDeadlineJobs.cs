@@ -43,7 +43,7 @@ public sealed class ReportDeadlineJobs(ReportDbContext db, IEventBus eventBus, I
             .Distinct()
             .ToListAsync(cancellationToken);
 
-        // Demo club catalog is owned by Club Service; this bounded context only emits the report-side fact.
+        // Club catalog is owned by Club Service; this bounded context only emits the report-side fact.
         var missingClubIds = Enumerable.Range(1, 3).Except(submittedClubIds).ToArray();
         await eventBus.PublishAsync(new ReportDeadlineReminderEvent(
             Guid.NewGuid(),

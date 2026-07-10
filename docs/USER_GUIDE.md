@@ -17,7 +17,7 @@
 
 1. Log in with `manager@club.local` / `Manager@12345`.
 2. Open Reports.
-3. Create a demo report draft.
+3. Create a report draft with the report tag, title, period, summary, and evidence.
 4. Upload supporting evidence from the report row before or after saving the draft.
 5. Submit a draft or rejected report for administrator review.
 6. Read notifications and feedback after approval or rejection.
@@ -27,7 +27,7 @@
 
 1. Log in with `treasurer@club.local` / `Treasurer@12345`.
 2. Open Finance.
-3. Create a demo budget proposal for the first seeded club.
+3. Create a budget proposal for an activity in the club.
 4. Track Submitted, Approved, Rejected, and Settled finance status.
 
 ## Student / Club Member

@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using System.Net.Http.Headers;
+using System.Text.Json;
 using ClubReportHub.Shared.Auth;
 using ClubReportHub.Shared.Data;
 using ClubReportHub.Shared.Events;
@@ -22,6 +24,11 @@ builder.Services.AddDbContext<ReportDbContext>(options => options.UseSqlServer(c
 builder.Services.Configure<ReportAttachmentOptions>(builder.Configuration.GetSection(ReportAttachmentOptions.SectionName));
 builder.Services.AddClubReportJwt(builder.Configuration);
 builder.Services.AddRabbitMqEventBus(builder.Configuration);
+builder.Services.AddHttpClient<ClubAuthorizationClient>(client =>
+{
+    var baseUrl = builder.Configuration["Services:ClubService:BaseUrl"] ?? "http://club-service:8080";
+    client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
+});
 builder.Services.AddHangfire(config => config
     .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
     .UseSimpleAssemblyNameTypeSerializer()
@@ -219,9 +226,15 @@ reports.MapGet("/{id:int}", async (int id, ReportDbContext db) =>
     return report is null ? Results.NotFound() : Results.Ok(ToResponse(report));
 });
 
-reports.MapPost("/", async (CreateReportRequest request, ReportDbContext db, ClaimsPrincipal user) =>
+reports.MapPost("/", async (
+    CreateReportRequest request,
+    ReportDbContext db,
+    ClaimsPrincipal user,
+    ClubAuthorizationClient clubAuthorization,
+    HttpContext httpContext,
+    CancellationToken cancellationToken) =>
 {
-    if (!CanAuthorReports(user))
+    if (!await CanAuthorReportsAsync(user, request.ClubId, clubAuthorization, httpContext, cancellationToken))
     {
         return Results.Forbid();
     }
@@ -253,17 +266,24 @@ reports.MapPost("/", async (CreateReportRequest request, ReportDbContext db, Cla
     return Results.Created($"/api/reports/{report.Id}", ToResponse(report));
 });
 
-reports.MapPut("/{id:int}", async (int id, UpdateReportRequest request, ReportDbContext db, ClaimsPrincipal user) =>
+reports.MapPut("/{id:int}", async (
+    int id,
+    UpdateReportRequest request,
+    ReportDbContext db,
+    ClaimsPrincipal user,
+    ClubAuthorizationClient clubAuthorization,
+    HttpContext httpContext,
+    CancellationToken cancellationToken) =>
 {
-    if (!CanAuthorReports(user))
-    {
-        return Results.Forbid();
-    }
-
-    var report = await db.Reports.Include(x => x.Details).Include(x => x.Attachments).Include(x => x.Feedback).FirstOrDefaultAsync(x => x.Id == id);
+    var report = await db.Reports.Include(x => x.Details).Include(x => x.Attachments).Include(x => x.Feedback).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     if (report is null)
     {
         return Results.NotFound();
+    }
+
+    if (!await CanAuthorReportsAsync(user, report.ClubId, clubAuthorization, httpContext, cancellationToken))
+    {
+        return Results.Forbid();
     }
 
     if (report.Status is not (ReportStatuses.Draft or ReportStatuses.Rejected))
@@ -296,17 +316,20 @@ reports.MapPost("/{id:int}/attachments", async (
     AddAttachmentRequest request,
     ReportDbContext db,
     IOptions<ReportAttachmentOptions> attachmentOptions,
-    ClaimsPrincipal user) =>
+    ClaimsPrincipal user,
+    ClubAuthorizationClient clubAuthorization,
+    HttpContext httpContext,
+    CancellationToken cancellationToken) =>
 {
-    if (!CanAuthorReports(user))
-    {
-        return Results.Forbid();
-    }
-
-    var report = await db.Reports.Include(x => x.Details).Include(x => x.Attachments).Include(x => x.Feedback).FirstOrDefaultAsync(x => x.Id == id);
+    var report = await db.Reports.Include(x => x.Details).Include(x => x.Attachments).Include(x => x.Feedback).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     if (report is null)
     {
         return Results.NotFound();
+    }
+
+    if (!await CanAuthorReportsAsync(user, report.ClubId, clubAuthorization, httpContext, cancellationToken))
+    {
+        return Results.Forbid();
     }
 
     var validation = ReportAttachmentPolicy.Validate(request.FileName, request.ContentType, request.SizeBytes, attachmentOptions.Value);
@@ -343,13 +366,10 @@ reports.MapPost("/{id:int}/attachments/upload", async (
     IOptions<ReportAttachmentOptions> attachmentOptions,
     IWebHostEnvironment environment,
     ClaimsPrincipal user,
+    ClubAuthorizationClient clubAuthorization,
+    HttpContext httpContext,
     CancellationToken cancellationToken) =>
 {
-    if (!CanAuthorReports(user))
-    {
-        return Results.Forbid();
-    }
-
     var report = await db.Reports
         .Include(x => x.Details)
         .Include(x => x.Attachments)
@@ -358,6 +378,11 @@ reports.MapPost("/{id:int}/attachments/upload", async (
     if (report is null)
     {
         return Results.NotFound();
+    }
+
+    if (!await CanAuthorReportsAsync(user, report.ClubId, clubAuthorization, httpContext, cancellationToken))
+    {
+        return Results.Forbid();
     }
 
     if (reportDetailId.HasValue && report.Details.All(x => x.Id != reportDetailId.Value))
@@ -421,17 +446,24 @@ reports.MapGet("/{id:int}/attachments/{attachmentId:int}/download", async (
     return Results.File(attachment.StoragePath, attachment.ContentType, attachment.FileName);
 });
 
-reports.MapPost("/{id:int}/submit", async (int id, ReportDbContext db, IEventBus eventBus, ClaimsPrincipal user, CancellationToken cancellationToken) =>
+reports.MapPost("/{id:int}/submit", async (
+    int id,
+    ReportDbContext db,
+    IEventBus eventBus,
+    ClaimsPrincipal user,
+    ClubAuthorizationClient clubAuthorization,
+    HttpContext httpContext,
+    CancellationToken cancellationToken) =>
 {
-    if (!CanAuthorReports(user))
-    {
-        return Results.Forbid();
-    }
-
     var report = await db.Reports.Include(x => x.Details).Include(x => x.Attachments).Include(x => x.Feedback).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     if (report is null)
     {
         return Results.NotFound();
+    }
+
+    if (!await CanAuthorReportsAsync(user, report.ClubId, clubAuthorization, httpContext, cancellationToken))
+    {
+        return Results.Forbid();
     }
 
     if (report.Details.Count == 0)
@@ -635,10 +667,34 @@ static async Task AddAuditAsync(ReportDbContext db, int reportId, string action,
     await db.SaveChangesAsync(cancellationToken);
 }
 
-static bool CanAuthorReports(ClaimsPrincipal user)
+static async Task<bool> CanAuthorReportsAsync(
+    ClaimsPrincipal user,
+    int clubId,
+    ClubAuthorizationClient clubAuthorization,
+    HttpContext httpContext,
+    CancellationToken cancellationToken)
 {
-    return user.IsInRole(AuthRoles.ClubManager)
-        || user.IsInRole(AuthRoles.Treasurer);
+    if (clubId <= 0)
+    {
+        return false;
+    }
+
+    var bearerToken = GetBearerToken(httpContext);
+    if (string.IsNullOrWhiteSpace(bearerToken))
+    {
+        return false;
+    }
+
+    return await clubAuthorization.UserCanAuthorReportsAsync(clubId, user.GetUserId(), bearerToken, cancellationToken);
+}
+
+static string? GetBearerToken(HttpContext httpContext)
+{
+    var authorization = httpContext.Request.Headers.Authorization.ToString();
+    const string bearerPrefix = "Bearer ";
+    return authorization.StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase)
+        ? authorization[bearerPrefix.Length..].Trim()
+        : null;
 }
 
 static string NormalizeReportTag(string? tag, string? reportType)
@@ -689,3 +745,64 @@ static ReportResponse ToResponse(Report report) => new(
         x.Decision,
         x.Message,
         x.CreatedAtUtc)).ToArray());
+
+sealed class ClubAuthorizationClient(HttpClient httpClient, ILogger<ClubAuthorizationClient> logger)
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    public async Task<bool> UserCanAuthorReportsAsync(
+        int clubId,
+        int userId,
+        string bearerToken,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"api/clubs/{clubId}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+
+        try
+        {
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Club authorization lookup failed for club {ClubId}. Status code: {StatusCode}", clubId, response.StatusCode);
+                return false;
+            }
+
+            var club = await response.Content.ReadFromJsonAsync<ClubAccessResponse>(JsonOptions, cancellationToken);
+            if (club is null)
+            {
+                return false;
+            }
+
+            var isManager = club.Managers.Any(manager => manager.ManagerUserId == userId && manager.IsActive);
+            var isTreasurer = club.Members.Any(member =>
+                member.UserId == userId
+                && string.Equals(member.Status, "Approved", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(member.Role, "TREASURER", StringComparison.OrdinalIgnoreCase));
+
+            return isManager || isTreasurer;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            logger.LogWarning(ex, "Club authorization lookup failed for club {ClubId}.", clubId);
+            return false;
+        }
+    }
+}
+
+sealed record ClubAccessResponse(
+    int Id,
+    IReadOnlyCollection<ManagerAccessResponse> Managers,
+    IReadOnlyCollection<MemberAccessResponse> Members);
+
+sealed record ManagerAccessResponse(
+    int ManagerUserId,
+    bool IsActive);
+
+sealed record MemberAccessResponse(
+    int UserId,
+    string Role,
+    string Status);

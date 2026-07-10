@@ -14,7 +14,7 @@ FPTU Club Management & Report Hub is an ASP.NET Core microservices assignment im
   - Finance Service
   - Export Service
   - Notification Service
-- SQL Server persistence with EF Core migrations and seed data.
+- SQL Server persistence with EF Core migrations and preserved login accounts.
 - JWT authentication with `ADMIN`, `STUDENT_AFFAIRS_ADMIN`, `CLUB_MANAGER`, `TREASURER`, and `CLUB_MEMBER` roles.
 - RabbitMQ event publishing and notification consumption.
 - Hangfire recurring jobs for deadline reminders, missing report checks, export cleanup, and automatic consolidated exports.
@@ -24,7 +24,7 @@ FPTU Club Management & Report Hub is an ASP.NET Core microservices assignment im
 - Docker Compose stack for frontend, gateway, services, SQL Server, RabbitMQ, and persistent volumes.
 - Swagger/OpenAPI enabled on every backend service and the gateway.
 
-## Demo Accounts
+## Tài khoản đăng nhập
 
 | Role | Username | Password |
 | --- | --- | --- |
@@ -63,3 +63,4 @@ npm run build
 - [API Map](docs/API.md)
 - [Architecture and Diagrams](docs/ARCHITECTURE.md)
 - [Testing Evidence](docs/TESTING.md)
+- [Operational Data Reset Script](docs/reset-operational-data.sql)

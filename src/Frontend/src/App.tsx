@@ -28,7 +28,7 @@ import {
   XCircle
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import clubHubHero from "./assets/club-hub-hero-premium.webp";
+import clubHubCommunity from "./assets/club-hub-community-v2.webp";
 import landingProduct from "./assets/club-hub-landing-product.webp";
 import {
   ApiClient,
@@ -120,13 +120,103 @@ const statusTone: Record<ReportStatus, string> = {
   Rejected: "danger"
 };
 
+if ("scrollRestoration" in window.history) {
+  window.history.scrollRestoration = "manual";
+}
+
 const authStorageKey = "clubreport.auth";
-const sessionExpiredMessage = "Session expired. Please sign in again.";
+const sessionExpiredMessage = "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.";
 const adminRoles = ["ADMIN", "SYSTEM_ADMIN", "STUDENT_AFFAIRS_ADMIN"];
 const reportWorkflowRoles = [...adminRoles, "CLUB_MANAGER"];
 const reportAuthorRoles = ["CLUB_MANAGER", "TREASURER"];
 const financeWorkflowRoles = [...reportWorkflowRoles, "TREASURER"];
 const reportTags = ["Activity report", "Treasury report", "Event report", "Monthly summary"];
+const presetAccounts = [
+  { label: "Quản trị viên", username: "admin@club.local", password: "Admin@12345" },
+  { label: "Chủ nhiệm CLB", username: "manager@club.local", password: "Manager@12345" },
+  { label: "Công tác sinh viên", username: "studentaffairs@club.local", password: "StudentAffairs@12345" },
+  { label: "Thủ quỹ", username: "treasurer@club.local", password: "Treasurer@12345" },
+  { label: "Thành viên", username: "student@club.local", password: "Student@12345" }
+];
+
+const reportTagLabels: Record<string, string> = {
+  "Activity report": "Báo cáo hoạt động",
+  "Treasury report": "Báo cáo thủ quỹ",
+  "Event report": "Báo cáo sự kiện",
+  "Monthly summary": "Tổng kết tháng"
+};
+
+const statusLabels: Record<string, string> = {
+  Active: "Đang hoạt động",
+  Inactive: "Tạm ngưng",
+  Draft: "Bản nháp",
+  Submitted: "Đã gửi",
+  "Under Review": "Đang duyệt",
+  Approved: "Đã duyệt",
+  Rejected: "Từ chối",
+  Pending: "Chờ duyệt",
+  Completed: "Hoàn tất",
+  Cancelled: "Đã hủy",
+  Scheduled: "Đã lên lịch",
+  Failed: "Lỗi",
+  Settled: "Đã quyết toán",
+  Locked: "Đã khóa"
+};
+
+const roleLabels: Record<string, string> = {
+  ADMIN: "Quản trị viên",
+  SYSTEM_ADMIN: "Quản trị hệ thống",
+  STUDENT_AFFAIRS_ADMIN: "Quản trị công tác sinh viên",
+  CLUB_MANAGER: "Chủ nhiệm câu lạc bộ",
+  TREASURER: "Thủ quỹ",
+  CLUB_MEMBER: "Thành viên câu lạc bộ",
+  MEMBER: "Thành viên"
+};
+
+function displayStatus(status: string) {
+  return statusLabels[status] ?? status;
+}
+
+function displayReportTag(tag: string) {
+  return reportTagLabels[tag] ?? tag;
+}
+
+function displayRole(role: string) {
+  return roleLabels[role] ?? role.split("_").join(" ");
+}
+
+function formatDate(value: string | Date) {
+  return new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(value));
+}
+
+function formatDateTime(value: string | Date) {
+  return new Intl.DateTimeFormat("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
+function requestErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError) {
+    return {
+      400: "Dữ liệu chưa hợp lệ. Vui lòng kiểm tra lại các trường đã nhập.",
+      401: sessionExpiredMessage,
+      403: "Bạn không có quyền thực hiện thao tác này.",
+      404: "Không tìm thấy dữ liệu được yêu cầu.",
+      409: "Dữ liệu đã thay đổi hoặc đang bị trùng. Vui lòng tải lại và thử lại.",
+      500: "Máy chủ đang gặp sự cố. Vui lòng thử lại sau."
+    }[error.status] ?? `Yêu cầu thất bại (HTTP ${error.status}).`;
+  }
+
+  if (error instanceof TypeError && error.message.toLowerCase().includes("fetch")) {
+    return "Không thể kết nối tới máy chủ. Vui lòng kiểm tra các dịch vụ đang chạy.";
+  }
+
+  return error instanceof Error ? error.message : fallback;
+}
 
 function hasAnyRole(user: AuthResponse["user"] | null | undefined, allowedRoles: string[]) {
   return user?.roles.some((role) => allowedRoles.includes(role)) ?? false;
@@ -173,7 +263,7 @@ function createReportDraft(period = getNextPeriod()): ReportDraftForm {
     editingReportId: undefined,
     clubId: "",
     period,
-    reportType: "Activity report",
+    reportType: "Báo cáo hoạt động",
     tag: "Activity report",
     dueDate: getDueDateForPeriod(period),
     activityName: "",
@@ -291,8 +381,8 @@ export default function App() {
   const [auth, setAuth] = useState<AuthResponse | null>(() => readStoredAuth());
   const [view, setView] = useState<View>("dashboard");
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const [username, setUsername] = useState("admin@club.local");
-  const [password, setPassword] = useState("Admin@12345");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [registerDraft, setRegisterDraft] = useState<RegisterForm>(() => createRegisterDraft());
   const [clubs, setClubs] = useState<Club[]>([]);
   const [managedClubs, setManagedClubs] = useState<Club[]>([]);
@@ -309,7 +399,7 @@ export default function App() {
   const [roles, setRoles] = useState<RoleRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [draftFeedback, setDraftFeedback] = useState("Please add clearer evidence and resubmit.");
+  const [draftFeedback, setDraftFeedback] = useState("Vui lòng bổ sung minh chứng rõ ràng hơn và gửi lại báo cáo.");
   const [reportDraft, setReportDraft] = useState<ReportDraftForm>(() => createReportDraft());
   const [clubDraft, setClubDraft] = useState<ClubForm>(() => createClubDraft());
   const [activityDraft, setActivityDraft] = useState<ActivityForm>(() => createActivityDraft());
@@ -341,6 +431,13 @@ export default function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0 });
   }, [view]);
+
+  useEffect(() => {
+    if (!auth) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    const frame = window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0 }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [auth?.accessToken]);
 
   useEffect(() => {
     if (reportClubs.length === 0) return;
@@ -379,7 +476,7 @@ export default function App() {
     loadAll(new ApiClient(auth.accessToken), auth.user)
       .catch((err) => {
         if (!cancelled) {
-          handleRequestError(err, "Cannot load dashboard data.");
+          handleRequestError(err, "Không tải được dữ liệu tổng quan.");
         }
       })
       .finally(() => {
@@ -405,7 +502,7 @@ export default function App() {
       client.getReports(),
       client.getSummary(),
       client.getActivities(),
-      client.getKpiLeaderboard("2026-07"),
+      client.getKpiLeaderboard(formatMonth(new Date())),
       canLoadFinance ? client.getBudgetProposals() : Promise.resolve([]),
       canLoadExports ? client.getExports() : Promise.resolve({ total: 0, items: [] }),
       client.getNotifications(user),
@@ -435,7 +532,7 @@ export default function App() {
     try {
       await loadAll(api, auth.user);
     } catch (err) {
-      handleRequestError(err, "Cannot load dashboard data.");
+      handleRequestError(err, "Không tải được dữ liệu tổng quan.");
     } finally {
       setBusy(false);
     }
@@ -451,7 +548,7 @@ export default function App() {
       setAuth(result);
       setView("dashboard");
     } catch (err) {
-      setError(err instanceof ApiError && err.status === 401 ? "Invalid username or password." : err instanceof Error ? err.message : "Login failed.");
+      setError(err instanceof ApiError && err.status === 401 ? "Sai tài khoản hoặc mật khẩu." : requestErrorMessage(err, "Đăng nhập thất bại."));
     } finally {
       setBusy(false);
     }
@@ -471,7 +568,7 @@ export default function App() {
     };
 
     if (!payload.username || !payload.fullName || !payload.email || payload.password.length < 8) {
-      setError("Fill username, full name, email, and an 8+ character password.");
+      setError("Vui lòng nhập tài khoản, họ tên, email và mật khẩu tối thiểu 8 ký tự.");
       return;
     }
 
@@ -484,7 +581,7 @@ export default function App() {
       setRegisterDraft(createRegisterDraft());
       setView("clubs");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Registration failed.");
+      setError(requestErrorMessage(err, "Đăng ký thất bại."));
     } finally {
       setBusy(false);
     }
@@ -517,7 +614,7 @@ export default function App() {
       return;
     }
 
-    setError(err instanceof Error ? err.message : fallback);
+    setError(requestErrorMessage(err, fallback));
   }
 
   function logout() {
@@ -551,7 +648,7 @@ export default function App() {
         return {
           ...current,
           tag: value,
-          reportType: value,
+          reportType: displayReportTag(value),
           period,
           dueDate: getDueDateForPeriod(period)
         };
@@ -576,17 +673,17 @@ export default function App() {
     const reportType = reportDraft.reportType.trim() || tag;
 
     if (!club) {
-      setError("Choose a club before creating a report.");
+      setError("Vui lòng chọn câu lạc bộ trước khi tạo báo cáo.");
       return;
     }
 
     if (!reportDraft.period || !reportDraft.dueDate || !reportDraft.activityDate || !activityName || !description || !outcome) {
-      setError("Fill in club, period, dates, activity, description, and outcome before creating a report.");
+      setError("Vui lòng nhập đủ câu lạc bộ, kỳ báo cáo, ngày, hoạt động, mô tả và kết quả.");
       return;
     }
 
     if (!Number.isInteger(participantCount) || participantCount < 0) {
-      setError("Participant count must be a whole number.");
+      setError("Số người tham gia phải là số nguyên không âm.");
       return;
     }
 
@@ -641,7 +738,7 @@ export default function App() {
       editingReportId: report.id,
       clubId: String(report.clubId),
       period: report.period,
-      reportType: report.reportType,
+      reportType: displayReportTag(report.reportType),
       tag: report.tag,
       dueDate: report.dueDate.slice(0, 10),
       activityName: detail?.activityName ?? "",
@@ -681,7 +778,7 @@ export default function App() {
     };
 
     if (!payload.code || !payload.name || !payload.description || !payload.contactEmail || !payload.contactPhone) {
-      setError("Fill in club code, name, description, email, and phone.");
+      setError("Vui lòng nhập mã, tên, mô tả, email và số điện thoại của câu lạc bộ.");
       return;
     }
 
@@ -707,7 +804,7 @@ export default function App() {
     };
 
     if (!payload.code || !payload.name || !payload.description || !payload.purpose || !payload.reason || !payload.contactEmail || !payload.contactPhone) {
-      setError("Fill in club code, name, description, purpose, reason, email, and phone.");
+      setError("Vui lòng nhập đủ mã, tên, mô tả, mục đích, lý do, email và số điện thoại.");
       return;
     }
 
@@ -764,14 +861,14 @@ export default function App() {
   async function joinClub(club: Club) {
     const draft = joinDrafts[club.id] ?? createJoinClubDraft();
     const payload = {
-      message: `Request to join ${club.name}.`,
+      message: `Đơn xin tham gia ${club.name}.`,
       personalInfo: draft.personalInfo.trim(),
       goals: draft.goals.trim(),
       reason: draft.reason.trim()
     };
 
     if (!payload.personalInfo || !payload.goals || !payload.reason) {
-      setError("Fill in personal info, goals, and reason before requesting to join.");
+      setError("Vui lòng nhập thông tin cá nhân, mục tiêu và lý do trước khi gửi đơn tham gia.");
       return;
     }
 
@@ -784,26 +881,26 @@ export default function App() {
   async function approveClubApplication(id: number) {
     if (!isAdmin) return;
     await runAction(async () => {
-      await api.approveClubApplication(id, "Approved from admin workspace.");
+      await api.approveClubApplication(id, "Đã duyệt từ khu vực quản trị.");
     });
   }
 
   async function rejectClubApplication(id: number) {
     if (!isAdmin) return;
     await runAction(async () => {
-      await api.rejectClubApplication(id, "Rejected from admin workspace.");
+      await api.rejectClubApplication(id, "Đã từ chối từ khu vực quản trị.");
     });
   }
 
   async function approveMembership(id: number) {
     await runAction(async () => {
-      await api.approveMembership(id, "Approved by club owner.");
+      await api.approveMembership(id, "Chủ nhiệm câu lạc bộ đã duyệt.");
     });
   }
 
   async function rejectMembership(id: number) {
     await runAction(async () => {
-      await api.rejectMembership(id, "Rejected by club owner.");
+      await api.rejectMembership(id, "Chủ nhiệm câu lạc bộ đã từ chối.");
     });
   }
 
@@ -829,7 +926,7 @@ export default function App() {
       : user.roles.filter((item) => item !== role);
 
     if (nextRoles.length === 0) {
-      setError("A user must keep at least one role.");
+      setError("Mỗi người dùng phải có ít nhất một vai trò.");
       return;
     }
 
@@ -862,7 +959,7 @@ export default function App() {
     const location = activityDraft.location.trim();
 
     if (!club || !title || !description || !activityDraft.startTime || !activityDraft.endTime || !location) {
-      setError("Fill in club, activity title, time, location, and description.");
+      setError("Vui lòng nhập đủ câu lạc bộ, tên hoạt động, thời gian, địa điểm và mô tả.");
       return;
     }
 
@@ -913,7 +1010,7 @@ export default function App() {
   async function addParticipant(activityId: number) {
     const fullName = participantDrafts[activityId]?.trim();
     if (!fullName) {
-      setError("Enter participant name before adding.");
+      setError("Vui lòng nhập tên người tham gia.");
       return;
     }
 
@@ -942,7 +1039,7 @@ export default function App() {
     const description = financeDraft.description.trim();
 
     if (!club || !title || !description || !Number.isFinite(requestedAmount) || requestedAmount <= 0) {
-      setError("Fill in club, proposal title, description, and a positive requested amount.");
+      setError("Vui lòng nhập câu lạc bộ, tiêu đề, mô tả và số tiền đề xuất lớn hơn 0.");
       return;
     }
 
@@ -979,7 +1076,7 @@ export default function App() {
     const receiptUrl = draft?.receiptUrl.trim() ?? "";
 
     if (!Number.isFinite(totalSpent) || totalSpent <= 0 || !receiptUrl) {
-      setError("Enter settlement amount and receipt URL.");
+      setError("Vui lòng nhập số tiền quyết toán và đường dẫn biên lai.");
       return;
     }
 
@@ -994,7 +1091,7 @@ export default function App() {
 
   async function downloadExportFile(item: ExportRequest) {
     if (!item.file?.isAvailable) {
-      setError("Export file is not ready yet.");
+      setError("File xuất chưa sẵn sàng. Vui lòng thử lại sau.");
       return;
     }
 
@@ -1011,7 +1108,7 @@ export default function App() {
       link.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
-      handleRequestError(err, "Cannot download export.");
+      handleRequestError(err, "Không tải được file xuất.");
     } finally {
       setBusy(false);
     }
@@ -1025,162 +1122,153 @@ export default function App() {
       await refreshAll();
       return true;
     } catch (err) {
-      handleRequestError(err, "Action failed.");
+      handleRequestError(err, "Thao tác thất bại.");
       return false;
     } finally {
       setBusy(false);
     }
   }
 
-  function chooseDemoAccount(nextUsername: string, nextPassword: string) {
-    setAuthMode("login");
-    setUsername(nextUsername);
-    setPassword(nextPassword);
-  }
-
   if (!auth) {
     return (
       <main className="landing-page">
         <header className="landing-nav">
-          <a className="landing-brand" href="#top" aria-label="FPTU Club Hub home">
+          <a className="landing-brand" href="#top" aria-label="Trang chủ FPTU Club Hub">
             <span><Building2 size={23} aria-hidden /></span>
             <div>
               <strong>FPTU Club Hub</strong>
-              <small>Management & Report Hub</small>
+              <small>Cổng quản lý và báo cáo</small>
             </div>
           </a>
-          <nav aria-label="Landing navigation">
-            <a href="#features">Features</a>
-            <a href="#workflow">Workflow</a>
-            <a href="#demo-login">Demo</a>
+          <nav aria-label="Điều hướng trang giới thiệu">
+            <a href="#features">Tính năng</a>
+            <a href="#workflow">Quy trình</a>
+            <a href="#login">Đăng nhập</a>
           </nav>
-          <a className="landing-nav-cta" href="#demo-login">Try demo</a>
+          <a className="landing-nav-cta" href="#login">Mở hệ thống</a>
         </header>
 
         <section id="top" className="landing-hero">
+          <img className="landing-hero-media" src={landingProduct} alt="Giao diện tổng quan FPTU Club Hub trên máy tính và máy tính bảng" />
           <div className="landing-copy">
-            <span className="landing-eyebrow"><Sparkles size={15} aria-hidden /> Built for student affairs teams</span>
+            <span className="landing-eyebrow"><Sparkles size={15} aria-hidden /> Dành cho công tác sinh viên</span>
             <h1>FPTU Club Hub</h1>
-            <p>Club operations, reporting, KPI tracking, activity calendars, budgets, exports, and notifications in one polished workspace.</p>
+            <p>Quản lý câu lạc bộ, báo cáo, KPI, lịch hoạt động, ngân sách và thông báo trong một workspace thống nhất.</p>
             <div className="landing-actions">
-              <a className="landing-button landing-primary" href="#demo-login">
+              <a className="landing-button landing-primary" href="#login">
                 <LogIn size={18} aria-hidden />
-                Launch demo
+                Đăng nhập
               </a>
               <a className="landing-button" href="#features">
                 <ArrowUpRight size={18} aria-hidden />
-                Explore product
+                Khám phá sản phẩm
               </a>
             </div>
-            <div className="landing-proof" aria-label="Product highlights">
-              <span><strong>8</strong> services</span>
-              <span><strong>4</strong> demo roles</span>
-              <span><strong>1</strong> command center</span>
+            <div className="landing-proof" aria-label="Điểm nổi bật của sản phẩm">
+              <span><strong>8</strong> dịch vụ</span>
+              <span><strong>5</strong> vai trò</span>
+              <span><strong>1</strong> trung tâm vận hành</span>
             </div>
           </div>
-
-          <div className="landing-product">
-            <img src={landingProduct} alt="" />
-            <div className="product-chip chip-kpi">
-              <Trophy size={18} aria-hidden />
-              KPI live
-            </div>
-            <div className="product-chip chip-budget">
-              <WalletCards size={18} aria-hidden />
-              Budget ready
-            </div>
+          <div className="product-chip chip-kpi">
+            <Trophy size={18} aria-hidden />
+            KPI trực tiếp
+          </div>
+          <div className="product-chip chip-budget">
+            <WalletCards size={18} aria-hidden />
+            Sẵn sàng duyệt ngân sách
           </div>
         </section>
 
         <section id="features" className="landing-section landing-features">
           <div className="landing-section-head">
-            <span className="landing-eyebrow">Product modules</span>
-            <h2>Everything clubs need after the event ends.</h2>
-            <p>Designed around repeated student affairs workflows, not a generic admin template.</p>
+            <span className="landing-eyebrow">Các phân hệ</span>
+            <h2>Mọi quy trình câu lạc bộ trong một nơi.</h2>
+            <p>Được thiết kế theo nghiệp vụ công tác sinh viên và hoạt động thực tế của từng câu lạc bộ.</p>
           </div>
           <div className="landing-feature-grid">
             <article>
               <FileText size={22} aria-hidden />
-              <h3>Report workflow</h3>
-              <p>Create, submit, review, approve, reject, and attach evidence with clear status states.</p>
+              <h3>Luồng báo cáo</h3>
+              <p>Tạo, gửi, duyệt, từ chối và đính kèm minh chứng với trạng thái rõ ràng.</p>
             </article>
             <article>
               <Trophy size={22} aria-hidden />
-              <h3>KPI leaderboard</h3>
-              <p>Turn participation and approved reports into scannable performance rankings.</p>
+              <h3>Bảng xếp hạng KPI</h3>
+              <p>Chuyển dữ liệu tham gia và báo cáo đã duyệt thành thứ hạng dễ theo dõi.</p>
             </article>
             <article>
               <WalletCards size={22} aria-hidden />
-              <h3>Finance tracking</h3>
-              <p>Budget proposals and settlement signals stay next to club activity context.</p>
+              <h3>Theo dõi tài chính</h3>
+              <p>Đề xuất ngân sách và quyết toán luôn gắn với hoạt động của câu lạc bộ.</p>
             </article>
             <article>
               <Bell size={22} aria-hidden />
-              <h3>Smart signals</h3>
-              <p>Notifications keep admins, managers, treasurers, and members moving in the same flow.</p>
+              <h3>Thông báo đúng việc</h3>
+              <p>Quản trị viên, chủ nhiệm, thủ quỹ và thành viên luôn nắm được bước tiếp theo.</p>
             </article>
           </div>
         </section>
 
         <section id="workflow" className="landing-section landing-workflow">
           <div className="landing-section-head">
-            <span className="landing-eyebrow">Workflow</span>
-            <h2>From activity evidence to decision-ready reports.</h2>
+            <span className="landing-eyebrow">Quy trình</span>
+            <h2>Từ minh chứng hoạt động đến báo cáo sẵn sàng phê duyệt.</h2>
           </div>
           <div className="workflow-steps">
             <article>
               <span>01</span>
-              <h3>Collect</h3>
-              <p>Clubs record activities, participants, attachments, and outcomes in one place.</p>
+              <h3>Ghi nhận</h3>
+              <p>Câu lạc bộ lưu hoạt động, người tham gia, minh chứng và kết quả tại một nơi.</p>
             </article>
             <article>
               <span>02</span>
-              <h3>Review</h3>
-              <p>Student affairs can inspect reports, give feedback, and move status forward.</p>
+              <h3>Kiểm duyệt</h3>
+              <p>Công tác sinh viên kiểm tra báo cáo, phản hồi và cập nhật trạng thái xử lý.</p>
             </article>
             <article>
               <span>03</span>
-              <h3>Decide</h3>
-              <p>KPIs, finance proposals, exports, and notifications close the loop cleanly.</p>
+              <h3>Ra quyết định</h3>
+              <p>KPI, ngân sách, quyết toán, file tổng hợp và thông báo khép kín toàn bộ quy trình.</p>
             </article>
           </div>
         </section>
 
-        <section id="demo-login" className="landing-section landing-demo">
-          <div className="landing-demo-copy">
-            <span className="landing-eyebrow">Live product demo</span>
-            <h2>Open the workspace with seeded roles.</h2>
-            <p>Pick a demo account, sign in, and jump straight into the real dashboard backed by the running microservices.</p>
+        <section id="login" className="landing-section landing-access">
+          <div className="landing-access-copy">
+            <span className="landing-eyebrow">Truy cập hệ thống</span>
+            <h2>Bắt đầu bằng tài khoản của bạn.</h2>
+            <p>Tài khoản mới mặc định là thành viên. Quyền quản trị, chủ nhiệm và thủ quỹ được cấp theo đúng quy trình.</p>
           </div>
           <div className="landing-login-panel">
-            <div className="auth-switch" role="tablist" aria-label="Authentication mode">
-              <button type="button" className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>Sign in</button>
-              <button type="button" className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>Register</button>
+            <div className="auth-switch" role="tablist" aria-label="Chế độ xác thực">
+              <button type="button" className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>Đăng nhập</button>
+              <button type="button" className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>Đăng ký</button>
             </div>
             {authMode === "login" ? (
               <form onSubmit={handleLogin} className="login-form">
                 <label>
-                  Username
+                  Tài khoản
                   <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
                 </label>
                 <label>
-                  Password
+                  Mật khẩu
                   <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" />
                 </label>
                 {error && <div className="alert">{error}</div>}
                 <button className="primary" type="submit" disabled={busy}>
                   <LogIn size={18} aria-hidden />
-                  Sign in
+                  {busy ? "Đang đăng nhập..." : "Đăng nhập"}
                 </button>
               </form>
             ) : (
               <form onSubmit={handleRegister} className="login-form">
                 <label>
-                  Username
+                  Tài khoản
                   <input value={registerDraft.username} onChange={(event) => updateRegisterDraftField("username", event.target.value)} autoComplete="username" />
                 </label>
                 <label>
-                  Full name
+                  Họ và tên
                   <input value={registerDraft.fullName} onChange={(event) => updateRegisterDraftField("fullName", event.target.value)} autoComplete="name" />
                 </label>
                 <label>
@@ -1188,29 +1276,30 @@ export default function App() {
                   <input value={registerDraft.email} onChange={(event) => updateRegisterDraftField("email", event.target.value)} autoComplete="email" />
                 </label>
                 <label>
-                  Password
+                  Mật khẩu
                   <input value={registerDraft.password} onChange={(event) => updateRegisterDraftField("password", event.target.value)} type="password" autoComplete="new-password" />
                 </label>
                 {error && <div className="alert">{error}</div>}
                 <button className="primary" type="submit" disabled={busy}>
                   <UsersRound size={18} aria-hidden />
-                  Create member account
+                  {busy ? "Đang tạo tài khoản..." : "Tạo tài khoản thành viên"}
                 </button>
               </form>
             )}
-            <div className="demo-row" aria-label="Demo accounts">
-              <button type="button" onClick={() => chooseDemoAccount("admin@club.local", "Admin@12345")}>
-                Admin
-              </button>
-              <button type="button" onClick={() => chooseDemoAccount("manager@club.local", "Manager@12345")}>
-                Manager
-              </button>
-              <button type="button" onClick={() => chooseDemoAccount("treasurer@club.local", "Treasurer@12345")}>
-                Treasurer
-              </button>
-              <button type="button" onClick={() => chooseDemoAccount("student@club.local", "Student@12345")}>
-                Student
-              </button>
+            <div className="account-row" aria-label="Tài khoản có sẵn">
+              {presetAccounts.map((account) => (
+                <button
+                  type="button"
+                  key={account.username}
+                  onClick={() => {
+                    setAuthMode("login");
+                    setUsername(account.username);
+                    setPassword(account.password);
+                  }}
+                >
+                  {account.label}
+                </button>
+              ))}
             </div>
           </div>
         </section>
@@ -1232,35 +1321,35 @@ export default function App() {
           </div>
           <div>
             <strong>FPTU Club</strong>
-            <span>Management Hub</span>
+            <span>Cổng quản lý</span>
           </div>
         </div>
-        <nav aria-label="Primary">
-          <NavButton icon={<Gauge />} label="Dashboard" active={view === "dashboard"} onClick={() => setView("dashboard")} />
-          {canUseReportWorkflow && <NavButton icon={<FileText />} label="Reports" active={view === "reports"} onClick={() => setView("reports")} />}
-          <NavButton icon={<Building2 />} label="Clubs" active={view === "clubs"} onClick={() => setView("clubs")} />
-          <NavButton icon={<CalendarDays />} label="Activities" active={view === "activities"} onClick={() => setView("activities")} />
+        <nav aria-label="Điều hướng chính">
+          <NavButton icon={<Gauge />} label="Tổng quan" active={view === "dashboard"} onClick={() => setView("dashboard")} />
+          {canUseReportWorkflow && <NavButton icon={<FileText />} label="Báo cáo" active={view === "reports"} onClick={() => setView("reports")} />}
+          <NavButton icon={<Building2 />} label="Câu lạc bộ" active={view === "clubs"} onClick={() => setView("clubs")} />
+          <NavButton icon={<CalendarDays />} label="Hoạt động" active={view === "activities"} onClick={() => setView("activities")} />
           <NavButton icon={<Trophy />} label="KPI" active={view === "kpi"} onClick={() => setView("kpi")} />
-          {canUseFinanceWorkflow && <NavButton icon={<WalletCards />} label="Finance" active={view === "finance"} onClick={() => setView("finance")} />}
-          {canUseExports && <NavButton icon={<FileSpreadsheet />} label="Exports" active={view === "exports"} onClick={() => setView("exports")} />}
-          <NavButton icon={<Bell />} label="Notifications" active={view === "notifications"} onClick={() => setView("notifications")} />
-          {canManageUsers && <NavButton icon={<UserRoundCog />} label="Users" active={view === "users"} onClick={() => setView("users")} />}
+          {canUseFinanceWorkflow && <NavButton icon={<WalletCards />} label="Tài chính" active={view === "finance"} onClick={() => setView("finance")} />}
+          {canUseExports && <NavButton icon={<FileSpreadsheet />} label="Xuất file" active={view === "exports"} onClick={() => setView("exports")} />}
+          <NavButton icon={<Bell />} label="Thông báo" active={view === "notifications"} onClick={() => setView("notifications")} />
+          {canManageUsers && <NavButton icon={<UserRoundCog />} label="Người dùng" active={view === "users"} onClick={() => setView("users")} />}
         </nav>
         <div className="sidebar-card">
-          <span><ShieldCheck size={14} aria-hidden /> Signed in</span>
+          <span><ShieldCheck size={14} aria-hidden /> Đã đăng nhập</span>
           <strong>{auth.user.fullName}</strong>
-          <small>{auth.user.roles[0]}</small>
+          <small>{displayRole(auth.user.roles[0])}</small>
         </div>
-        <button className="ghost logout" type="button" onClick={logout}>
+        <button className="ghost logout" type="button" onClick={logout} title="Đăng xuất" aria-label="Đăng xuất">
           <LogOut size={18} aria-hidden />
-          Sign out
+          Đăng xuất
         </button>
       </aside>
 
       <main className="workspace">
         <header className="topbar">
           <div className="page-title">
-            <span className="workspace-label"><span className="status-dot" /> Live workspace</span>
+            <span className="workspace-label"><span className="status-dot" /> Hệ thống đang hoạt động</span>
             <h1>{viewLabel(view)}</h1>
             <p>{viewSubtitle(view)}</p>
           </div>
@@ -1268,11 +1357,11 @@ export default function App() {
             <span className="user-chip">
               <UserRoundCog size={17} aria-hidden />
               {auth.user.fullName}
-              <span className="role-pill">{auth.user.roles.join(", ")}</span>
+              <span className="role-pill">{auth.user.roles.map(displayRole).join(", ")}</span>
             </span>
-            <button className="secondary" type="button" onClick={refreshAll} disabled={busy} title="Refresh dashboard data">
+            <button className="secondary" type="button" onClick={refreshAll} disabled={busy} title="Làm mới dữ liệu">
               <RefreshCcw className={busy ? "spin" : undefined} size={18} aria-hidden />
-              Refresh
+              Làm mới
             </button>
           </div>
         </header>
@@ -1316,7 +1405,7 @@ export default function App() {
                 uploadEvidence={uploadEvidence}
               />
             ) : (
-              <AccessNotice title="Reports are not available for this role." />
+              <AccessNotice title="Vai trò hiện tại không có quyền truy cập báo cáo." />
             )
           )}
           {view === "clubs" && (
@@ -1378,13 +1467,13 @@ export default function App() {
                 setFinanceDraftField={updateFinanceDraftField}
                 createProposal={createBudgetProposalFromForm}
                 approveProposal={(id, amount) => runAction(() => api.approveBudgetProposal(id, amount).then(() => undefined))}
-                rejectProposal={(id) => runAction(() => api.rejectBudgetProposal(id, "Rejected from Student Affairs dashboard.").then(() => undefined))}
+                rejectProposal={(id) => runAction(() => api.rejectBudgetProposal(id, "Đề xuất bị từ chối bởi quản trị công tác sinh viên.").then(() => undefined))}
                 setSettlementDraft={updateSettlementDraft}
                 createSettlement={createSettlementFromDraft}
-                approveSettlement={(id) => runAction(() => api.approveSettlement(id, "Settlement approved from dashboard."))}
+                approveSettlement={(id) => runAction(() => api.approveSettlement(id, "Quyết toán đã được phê duyệt trên hệ thống."))}
               />
             ) : (
-              <AccessNotice title="Finance is not available for this role." />
+              <AccessNotice title="Vai trò hiện tại không có quyền truy cập tài chính." />
             )
           )}
           {view === "exports" && (
@@ -1393,12 +1482,12 @@ export default function App() {
                 exportsList={exportsList}
                 busy={busy}
                 isAdmin={isAdmin}
-                createExport={(type) => runAction(() => api.createExport(type, "Consolidated", "2026-07").then(() => undefined))}
+                createExport={(type) => runAction(() => api.createExport(type, "Consolidated", formatMonth(new Date())).then(() => undefined))}
                 downloadExport={downloadExportFile}
                 deleteExport={(id) => runAction(() => api.deleteExport(id))}
               />
             ) : (
-              <AccessNotice title="Exports are not available for this role." />
+              <AccessNotice title="Vai trò hiện tại không có quyền xuất file." />
             )
           )}
           {view === "notifications" && (
@@ -1416,7 +1505,7 @@ export default function App() {
                 updateUserRole={updateUserRole}
               />
             ) : (
-              <AccessNotice title="Users are not available for this role." />
+              <AccessNotice title="Vai trò hiện tại không có quyền quản lý người dùng." />
             )
           )}
         </div>
@@ -1454,37 +1543,37 @@ function Dashboard({
   const approvalRate = summary?.total ? Math.round(((summary.approved ?? 0) / summary.total) * 100) : 0;
   const nextActivity = activities[0];
   const stats = [
-    { label: "Reports", value: summary?.total ?? 0, hint: `${summary?.approved ?? 0} approved`, tone: "teal", icon: <FileText /> },
-    { label: "In Review", value: reviewCount, hint: "needs attention", tone: "amber", icon: <ClipboardCheck /> },
-    { label: "Top KPI", value: topClub?.points ?? 0, hint: topClub?.clubName ?? "No ranking yet", tone: "green", icon: <Trophy /> },
-    { label: "Budgets", value: budgetProposals.length, hint: `${budgetProposals.filter((item) => item.status === "Submitted").length} pending`, tone: "coral", icon: <CircleDollarSign /> }
+    { label: "Báo cáo", value: summary?.total ?? 0, hint: `${summary?.approved ?? 0} đã duyệt`, tone: "teal", icon: <FileText /> },
+    { label: "Đang chờ duyệt", value: reviewCount, hint: "cần xử lý", tone: "amber", icon: <ClipboardCheck /> },
+    { label: "KPI dẫn đầu", value: topClub?.points ?? 0, hint: topClub?.clubName ?? "Chưa có xếp hạng", tone: "green", icon: <Trophy /> },
+    { label: "Ngân sách", value: budgetProposals.length, hint: `${budgetProposals.filter((item) => item.status === "Submitted").length} chờ duyệt`, tone: "coral", icon: <CircleDollarSign /> }
   ];
   return (
     <section className="dashboard-grid">
       <section className="hero-panel">
-        <img src={clubHubHero} alt="" />
+        <img src={clubHubCommunity} alt="Nhóm sinh viên và cán bộ cùng rà soát kế hoạch hoạt động câu lạc bộ" />
         <div className="hero-copy">
-          <span className="eyebrow"><Sparkles size={15} aria-hidden /> FPTU Club Operations</span>
-          <h2>One clean command center for club reporting, KPI, activities, and budgets.</h2>
-          <p>Track what needs attention, move reports through approval, and keep club operations visible without digging through separate tools.</p>
+          <span className="eyebrow"><Sparkles size={15} aria-hidden /> Vận hành câu lạc bộ FPTU</span>
+          <h2>Một trung tâm làm việc cho báo cáo, KPI, hoạt động và ngân sách.</h2>
+          <p>Nắm việc cần xử lý, duyệt báo cáo đúng luồng và theo dõi toàn bộ câu lạc bộ mà không phải chuyển qua nhiều công cụ.</p>
           <div className="hero-actions">
             {canUseReportWorkflow && (
               <button className="primary" type="button" onClick={() => onNavigate("reports")}>
                 <FileText size={18} aria-hidden />
-                {canAuthorReports ? "Create report" : "Review reports"}
+                {canAuthorReports ? "Tạo báo cáo" : "Duyệt báo cáo"}
               </button>
             )}
             <button className="secondary" type="button" onClick={() => onNavigate("activities")}>
               <CalendarDays size={18} aria-hidden />
-              Activities
+              Hoạt động
             </button>
           </div>
         </div>
-        <div className="hero-meter" aria-label="Approval progress">
-          <span>Approval rate</span>
+        <div className="hero-meter" aria-label="Tiến độ phê duyệt">
+          <span>Tỷ lệ phê duyệt</span>
           <strong>{approvalRate}%</strong>
           <div className="progress-track"><i style={{ width: `${approvalRate}%` }} /></div>
-          <small>{reviewCount} report{reviewCount === 1 ? "" : "s"} still waiting</small>
+          <small>{reviewCount} báo cáo đang chờ xử lý</small>
         </div>
       </section>
 
@@ -1501,60 +1590,60 @@ function Dashboard({
         ))}
       </div>
 
-      <section className="quick-actions" aria-label="Quick actions">
+      <section className="quick-actions" aria-label="Thao tác nhanh">
         {canUseReportWorkflow && (
           <button type="button" onClick={() => onNavigate("reports")}>
             <span><ClipboardCheck size={18} aria-hidden /></span>
-            <strong>Reports</strong>
-            <small>{reviewCount} pending</small>
+            <strong>Báo cáo</strong>
+            <small>{reviewCount} chờ xử lý</small>
             <ArrowUpRight size={16} aria-hidden />
           </button>
         )}
         <button type="button" onClick={() => onNavigate("kpi")}>
           <span><Trophy size={18} aria-hidden /></span>
           <strong>KPI</strong>
-          <small>{topClub?.clubName ?? "No ranking"}</small>
+          <small>{topClub?.clubName ?? "Chưa có xếp hạng"}</small>
           <ArrowUpRight size={16} aria-hidden />
         </button>
         {canUseFinanceWorkflow && (
           <button type="button" onClick={() => onNavigate("finance")}>
             <span><WalletCards size={18} aria-hidden /></span>
-            <strong>Finance</strong>
-            <small>{budgetProposals.filter((item) => item.status === "Submitted").length} pending</small>
+            <strong>Tài chính</strong>
+            <small>{budgetProposals.filter((item) => item.status === "Submitted").length} chờ duyệt</small>
             <ArrowUpRight size={16} aria-hidden />
           </button>
         )}
         <button type="button" onClick={() => onNavigate("notifications")}>
           <span><Megaphone size={18} aria-hidden /></span>
-          <strong>Signals</strong>
-          <small>{unreadCount} unread</small>
+          <strong>Thông báo</strong>
+          <small>{unreadCount} chưa đọc</small>
           <ArrowUpRight size={16} aria-hidden />
         </button>
       </section>
 
       {canUseReportWorkflow && (
         <section className="panel panel-large">
-          <SectionTitle icon={<FileText />} title="Recent Reports" meta={`${reports.length} loaded`} />
+          <SectionTitle icon={<FileText />} title="Báo cáo gần đây" meta={`${reports.length} báo cáo`} />
           <ReportList reports={reports.slice(0, 6)} />
         </section>
       )}
       <section className="panel insight-panel">
-        <SectionTitle icon={<Trophy />} title="Top Club" meta={kpi?.period ?? "All periods"} />
+        <SectionTitle icon={<Trophy />} title="Câu lạc bộ dẫn đầu" meta={kpi?.period ?? "Tất cả kỳ"} />
         {topClub ? (
           <div className="top-club-card">
             <span>#{topClub.rank}</span>
             <strong>{topClub.clubName}</strong>
             <div className="progress-track"><i style={{ width: `${Math.min(100, topClub.points)}%` }} /></div>
-            <small>{topClub.points} points - {topClub.participants} participants</small>
+            <small>{topClub.points} điểm - {topClub.participants} người tham gia</small>
           </div>
         ) : (
-          <p className="empty">No KPI data loaded.</p>
+          <p className="empty">Chưa có dữ liệu KPI.</p>
         )}
-        <SectionTitle icon={<Bell />} title="Unread Signals" meta={`${unreadCount} open`} />
+        <SectionTitle icon={<Bell />} title="Thông báo chưa đọc" meta={`${unreadCount} thông báo`} />
         <NotificationList notifications={notifications.filter((item) => !item.isRead).slice(0, 4)} />
       </section>
       <section className="panel">
-        <SectionTitle icon={<CalendarDays />} title="Upcoming Activities" meta={nextActivity ? new Date(nextActivity.startTimeUtc).toLocaleDateString() : "No activity"} />
+        <SectionTitle icon={<CalendarDays />} title="Hoạt động sắp tới" meta={nextActivity ? formatDate(nextActivity.startTimeUtc) : "Chưa có hoạt động"} />
         <ActivityList activities={activities.slice(0, 5)} />
       </section>
     </section>
@@ -1596,39 +1685,39 @@ function ReportsView(props: {
     <section className="surface">
       <div className="surface-head">
         <div>
-          <span className="section-kicker"><ClipboardCheck size={15} aria-hidden /> Workflow</span>
-          <h2>Report Workflow</h2>
-          <p>{props.reports.length} reports across draft, review, and approval states.</p>
+          <span className="section-kicker"><ClipboardCheck size={15} aria-hidden /> Quy trình báo cáo</span>
+          <h2>Quản lý báo cáo</h2>
+          <p>{props.reports.length} báo cáo ở các trạng thái soạn thảo, kiểm duyệt và phê duyệt.</p>
         </div>
       </div>
       {props.canAuthorReports ? (
-        <form className="report-form" onSubmit={handleCreateReport} aria-label="Create report">
+        <form className="report-form" onSubmit={handleCreateReport} aria-label="Tạo báo cáo">
           <div className="report-form-head">
             <div>
-              <span className="section-kicker"><FileText size={15} aria-hidden /> New report</span>
-              <h3>{props.reportDraft.editingReportId ? "Edit report content" : "Enter report content"}</h3>
+              <span className="section-kicker"><FileText size={15} aria-hidden /> Nội dung báo cáo</span>
+              <h3>{props.reportDraft.editingReportId ? "Chỉnh sửa báo cáo" : "Tạo báo cáo mới"}</h3>
             </div>
             <div className="split-actions">
               {props.reportDraft.editingReportId && (
                 <button type="button" onClick={props.cancelReportEdit} disabled={props.busy}>
-                  Cancel edit
+                  Hủy chỉnh sửa
                 </button>
               )}
               <button className="primary" type="submit" disabled={props.busy || props.clubs.length === 0}>
                 <FileText size={18} aria-hidden />
-                {props.reportDraft.editingReportId ? "Save report" : "Create report"}
+                {props.reportDraft.editingReportId ? "Lưu báo cáo" : "Tạo báo cáo"}
               </button>
             </div>
           </div>
           <div className="report-form-grid">
             <label>
-              Club
+              Câu lạc bộ
               {props.scopedClub ? (
                 <input value={props.scopedClub.name} readOnly />
               ) : (
                 <select value={props.reportDraft.clubId} onChange={(event) => props.setReportDraftField("clubId", event.target.value)} disabled={props.clubs.length === 0 || Boolean(props.reportDraft.editingReportId)}>
                   {props.clubs.length === 0 ? (
-                    <option value="">No clubs loaded</option>
+                    <option value="">Chưa có câu lạc bộ</option>
                   ) : (
                     props.clubs.map((club) => (
                       <option value={club.id} key={club.id}>{club.name}</option>
@@ -1638,17 +1727,17 @@ function ReportsView(props: {
               )}
             </label>
             <label>
-              Report tag
+              Nhãn báo cáo
               <select value={props.reportDraft.tag} onChange={(event) => props.setReportDraftField("tag", event.target.value)}>
-                {reportTags.map((tag) => <option value={tag} key={tag}>{tag}</option>)}
+                {reportTags.map((tag) => <option value={tag} key={tag}>{displayReportTag(tag)}</option>)}
               </select>
             </label>
             <label>
-              Report type
-              <input value={props.reportDraft.reportType} onChange={(event) => props.setReportDraftField("reportType", event.target.value)} placeholder="Treasury report, activity report..." />
+              Tên loại báo cáo
+              <input value={props.reportDraft.reportType} onChange={(event) => props.setReportDraftField("reportType", event.target.value)} placeholder="Báo cáo thủ quỹ, báo cáo hoạt động..." />
             </label>
             <label>
-              Report period
+              Kỳ báo cáo
               <input
                 type="month"
                 value={props.reportDraft.period}
@@ -1657,7 +1746,7 @@ function ReportsView(props: {
               />
             </label>
             <label>
-              Due date
+              Hạn nộp
               <input
                 type="date"
                 value={props.reportDraft.dueDate}
@@ -1666,11 +1755,11 @@ function ReportsView(props: {
               />
             </label>
             <label>
-              Activity name
-              <input value={props.reportDraft.activityName} onChange={(event) => props.setReportDraftField("activityName", event.target.value)} placeholder="Monthly workshop, tournament, seminar..." />
+              Tên hoạt động
+              <input value={props.reportDraft.activityName} onChange={(event) => props.setReportDraftField("activityName", event.target.value)} placeholder="Workshop tháng, giải đấu, hội thảo..." />
             </label>
             <label>
-              Activity date
+              Ngày hoạt động
               <input
                 type="date"
                 value={props.reportDraft.activityDate}
@@ -1679,58 +1768,58 @@ function ReportsView(props: {
               />
             </label>
             <label>
-              Participants
+              Số người tham gia
               <input type="number" min="0" value={props.reportDraft.participantCount} onChange={(event) => props.setReportDraftField("participantCount", event.target.value)} />
             </label>
             <label className="span-2">
-              Report description
-              <textarea value={props.reportDraft.description} onChange={(event) => props.setReportDraftField("description", event.target.value)} placeholder="What happened, who joined, and what evidence is attached?" />
+              Nội dung chi tiết
+              <textarea value={props.reportDraft.description} onChange={(event) => props.setReportDraftField("description", event.target.value)} placeholder="Hoạt động đã diễn ra như thế nào, ai tham gia và có những minh chứng gì?" />
             </label>
             <label className="span-2">
-              Outcome
-              <textarea value={props.reportDraft.outcome} onChange={(event) => props.setReportDraftField("outcome", event.target.value)} placeholder="Result, impact, lessons learned, or follow-up actions." />
+              Kết quả và đánh giá
+              <textarea value={props.reportDraft.outcome} onChange={(event) => props.setReportDraftField("outcome", event.target.value)} placeholder="Kết quả, tác động, bài học và hành động tiếp theo." />
             </label>
           </div>
         </form>
       ) : (
         <div className="role-note">
           <ShieldCheck size={17} aria-hidden />
-          <span>Student Affairs/Admin reviews submitted reports here; club owners and treasurers create reports from their own club workspace.</span>
+          <span>Quản trị công tác sinh viên duyệt báo cáo tại đây; chủ nhiệm và thủ quỹ tạo báo cáo trong phạm vi câu lạc bộ của mình.</span>
         </div>
       )}
       {props.isAdmin && (
         <div className="feedback-row inline-field">
         <label>
-          Rejection feedback
+          Lý do từ chối
           <input value={props.feedback} onChange={(event) => props.setFeedback(event.target.value)} />
         </label>
         </div>
       )}
       {props.reports.length === 0 ? (
-        <p className="empty">No reports loaded.</p>
+        <p className="empty">Chưa có báo cáo. Hãy tạo báo cáo đầu tiên cho câu lạc bộ.</p>
       ) : (
-        <div className="report-board" aria-label="Reports">
+        <div className="report-board" aria-label="Danh sách báo cáo">
           {props.reports.map((report) => (
             <article className={`report-card ${statusTone[report.status]}`} key={report.id}>
             <div className="report-card-head">
               <div>
                 <span>{report.period}</span>
                 <h3>{report.clubName}</h3>
-                <small>{report.tag}</small>
+                <small>{displayReportTag(report.tag)}</small>
               </div>
               <StatusBadge status={report.status} />
             </div>
             <div className="report-meta">
-              <span><CalendarDays size={15} aria-hidden /> Due {new Date(report.dueDate).toLocaleDateString()}</span>
-              <span><Layers3 size={15} aria-hidden /> {report.details.length} activities</span>
-              <span><Paperclip size={15} aria-hidden /> {report.attachments.length} evidence</span>
+              <span><CalendarDays size={15} aria-hidden /> Hạn {formatDate(report.dueDate)}</span>
+              <span><Layers3 size={15} aria-hidden /> {report.details.length} hoạt động</span>
+              <span><Paperclip size={15} aria-hidden /> {report.attachments.length} minh chứng</span>
             </div>
-            <p>{report.details[0]?.outcome ?? "No outcome recorded yet."}</p>
+            <p>{report.details[0]?.outcome ?? "Chưa ghi nhận kết quả."}</p>
             <div className="report-actions">
               {props.canAuthorReports && (
-                <label className="icon-upload" title="Upload evidence">
+                <label className="icon-upload" title="Tải minh chứng lên">
                   <Upload size={16} aria-hidden />
-                  <span className="sr-only">Upload evidence</span>
+                  <span className="sr-only">Tải minh chứng lên</span>
                   <input
                     type="file"
                     accept="image/png,image/jpeg,application/pdf,.xlsx"
@@ -1743,26 +1832,26 @@ function ReportsView(props: {
                 </label>
               )}
               {props.canAuthorReports && (report.status === "Draft" || report.status === "Rejected") && (
-                <button type="button" onClick={() => props.editReport(report)} title="Edit report content" disabled={props.busy}>
-                  Edit
+                <button type="button" onClick={() => props.editReport(report)} title="Chỉnh sửa nội dung báo cáo" disabled={props.busy}>
+                  Sửa
                 </button>
               )}
               {props.canAuthorReports && (report.status === "Draft" || report.status === "Rejected") && (
-                <button type="button" onClick={() => props.submit(report.id)} title="Submit report" disabled={props.busy}>
+                <button type="button" onClick={() => props.submit(report.id)} title="Gửi báo cáo" disabled={props.busy}>
                   <Send size={16} aria-hidden />
                 </button>
               )}
               {props.isAdmin && report.status === "Submitted" && (
-                <button type="button" onClick={() => props.review(report.id)} title="Mark under review" disabled={props.busy}>
+                <button type="button" onClick={() => props.review(report.id)} title="Chuyển sang đang duyệt" disabled={props.busy}>
                   <RefreshCcw size={16} aria-hidden />
                 </button>
               )}
               {props.isAdmin && (report.status === "Submitted" || report.status === "Under Review") && (
                 <>
-                  <button type="button" onClick={() => props.approve(report.id)} title="Approve report" disabled={props.busy}>
+                  <button type="button" onClick={() => props.approve(report.id)} title="Phê duyệt báo cáo" disabled={props.busy}>
                     <CheckCircle2 size={16} aria-hidden />
                   </button>
-                  <button type="button" onClick={() => props.reject(report.id)} title="Reject report" disabled={props.busy}>
+                  <button type="button" onClick={() => props.reject(report.id)} title="Từ chối báo cáo" disabled={props.busy}>
                     <XCircle size={16} aria-hidden />
                   </button>
                 </>
@@ -1846,45 +1935,45 @@ function ClubsView({
     <section className="surface">
       <div className="surface-head">
         <div>
-          <span className="section-kicker"><UsersRound size={15} aria-hidden /> Club Directory</span>
-          <h2>Active Clubs</h2>
-          <p>{clubs.length} clubs with ownership, membership, and treasury delegation.</p>
+          <span className="section-kicker"><UsersRound size={15} aria-hidden /> Danh mục câu lạc bộ</span>
+          <h2>Câu lạc bộ</h2>
+          <p>{clubs.length} câu lạc bộ với thông tin chủ nhiệm, thành viên và phân quyền thủ quỹ.</p>
         </div>
       </div>
       {isAdmin && pendingApplications.length > 0 && (
-        <div className="workflow-strip" aria-label="Club creation applications">
+        <div className="workflow-strip" aria-label="Đơn đăng ký thành lập câu lạc bộ">
           {pendingApplications.map((application) => (
             <article className="workflow-card application-card" key={application.id}>
               <div className="application-card-head">
-                <span className="section-kicker"><Building2 size={14} aria-hidden /> Club application</span>
+                <span className="section-kicker"><Building2 size={14} aria-hidden /> Đơn thành lập câu lạc bộ</span>
                 <strong>{application.name}</strong>
-                <small>{application.code} requested by {application.requesterName}</small>
+                <small>Mã {application.code} - người gửi: {application.requesterName}</small>
               </div>
               <div className="application-detail-grid">
                 <div>
-                  <span>Contact</span>
+                  <span>Liên hệ</span>
                   <strong>{application.contactEmail}</strong>
                   <small>{application.contactPhone}</small>
                 </div>
                 <div>
-                  <span>Submitted</span>
-                  <strong>{new Date(application.submittedAtUtc).toLocaleDateString()}</strong>
-                  <small>{application.status}</small>
+                  <span>Ngày gửi</span>
+                  <strong>{formatDate(application.submittedAtUtc)}</strong>
+                  <small>{displayStatus(application.status)}</small>
                 </div>
               </div>
               <dl className="application-detail-list">
-                <div><dt>Description</dt><dd>{application.description || "Not provided"}</dd></div>
-                <div><dt>Purpose</dt><dd>{application.purpose || "Not provided"}</dd></div>
-                <div><dt>Reason</dt><dd>{application.reason || "Not provided"}</dd></div>
+                <div><dt>Mô tả</dt><dd>{application.description || "Chưa cung cấp"}</dd></div>
+                <div><dt>Mục đích thành lập</dt><dd>{application.purpose || "Chưa cung cấp"}</dd></div>
+                <div><dt>Lý do thành lập</dt><dd>{application.reason || "Chưa cung cấp"}</dd></div>
               </dl>
               <div className="card-actions">
                 <button type="button" onClick={() => approveApplication(application.id)} disabled={busy}>
                   <CheckCircle2 size={16} aria-hidden />
-                  Approve
+                  Phê duyệt
                 </button>
                 <button type="button" onClick={() => rejectApplication(application.id)} disabled={busy}>
                   <XCircle size={16} aria-hidden />
-                  Reject
+                  Từ chối
                 </button>
               </div>
             </article>
@@ -1892,77 +1981,81 @@ function ClubsView({
         </div>
       )}
       {(isAdmin || managedClubs.length === 0) && (
-        <form className="module-form" onSubmit={handleCreateClub} aria-label={isAdmin ? "Create club" : "Apply to create club"}>
+        <form className="module-form" onSubmit={handleCreateClub} aria-label={isAdmin ? "Tạo câu lạc bộ" : "Đăng ký thành lập câu lạc bộ"}>
           <div className="module-form-head">
             <div>
-              <span className="section-kicker"><Building2 size={15} aria-hidden /> Club setup</span>
-              <h3>{isAdmin ? "Create club" : "Apply to create a club"}</h3>
+              <span className="section-kicker"><Building2 size={15} aria-hidden /> Hồ sơ câu lạc bộ</span>
+              <h3>{isAdmin ? "Tạo câu lạc bộ" : "Đăng ký thành lập câu lạc bộ"}</h3>
             </div>
             <button className="primary" type="submit" disabled={busy}>
               <Building2 size={18} aria-hidden />
-              {isAdmin ? "Create club" : "Submit application"}
+              {isAdmin ? "Tạo câu lạc bộ" : "Gửi đơn đăng ký"}
             </button>
           </div>
           <div className="module-form-grid">
             <label>
-              Code
+              Mã câu lạc bộ
               <input value={clubDraft.code} onChange={(event) => setClubDraftField("code", event.target.value)} placeholder="AI, MUSIC, ROBOT" />
             </label>
             <label>
-              Name
-              <input value={clubDraft.name} onChange={(event) => setClubDraftField("name", event.target.value)} placeholder="Club name" />
+              Tên câu lạc bộ
+              <input value={clubDraft.name} onChange={(event) => setClubDraftField("name", event.target.value)} placeholder="Tên đầy đủ của câu lạc bộ" />
             </label>
             <label>
-              Contact email
+              Email liên hệ
               <input value={clubDraft.contactEmail} onChange={(event) => setClubDraftField("contactEmail", event.target.value)} placeholder="club@fpt.edu.vn" />
             </label>
             <label>
-              Contact phone
+              Số điện thoại liên hệ
               <input value={clubDraft.contactPhone} onChange={(event) => setClubDraftField("contactPhone", event.target.value)} placeholder="0900000000" />
             </label>
             <label className="span-2">
-              Description
-              <textarea value={clubDraft.description} onChange={(event) => setClubDraftField("description", event.target.value)} placeholder="Club mission, activities, and ownership notes." />
+              Mô tả câu lạc bộ
+              <textarea value={clubDraft.description} onChange={(event) => setClubDraftField("description", event.target.value)} placeholder="Sứ mệnh, nhóm hoạt động chính và định hướng phát triển." />
             </label>
             {!isAdmin && (
               <>
                 <label className="span-2">
-                  Purpose
-                  <textarea value={clubDraft.purpose} onChange={(event) => setClubDraftField("purpose", event.target.value)} placeholder="What value will this club bring to students and campus life?" />
+                  Mục đích thành lập
+                  <textarea value={clubDraft.purpose} onChange={(event) => setClubDraftField("purpose", event.target.value)} placeholder="Câu lạc bộ sẽ mang lại giá trị gì cho sinh viên và đời sống học đường?" />
                 </label>
                 <label className="span-2">
-                  Reason
-                  <textarea value={clubDraft.reason} onChange={(event) => setClubDraftField("reason", event.target.value)} placeholder="Why should Student Affairs approve this club now?" />
+                  Lý do thành lập
+                  <textarea value={clubDraft.reason} onChange={(event) => setClubDraftField("reason", event.target.value)} placeholder="Vì sao công tác sinh viên nên phê duyệt câu lạc bộ ở thời điểm này?" />
                 </label>
               </>
             )}
           </div>
         </form>
       )}
-      <div className="list-grid club-grid">
-        {clubs.map((club) => (
-          <ClubCard
-            key={club.id}
-            club={club}
-            currentUser={currentUser}
-            managers={managers}
-            isAdmin={isAdmin}
-            isOwner={ownedClubIds.has(club.id)}
-            busy={busy}
-            myMembership={myMembershipByClub.get(club.id)}
-            joinDraft={joinDrafts[club.id] ?? createJoinClubDraft()}
-            assignManager={assignManager}
-            toggleClubActive={toggleClubActive}
-            deleteClub={deleteClub}
-            joinClub={joinClub}
-            setJoinDraftField={setJoinDraftField}
-            approveMembership={approveMembership}
-            rejectMembership={rejectMembership}
-            assignTreasurer={assignTreasurer}
-            demoteTreasurer={demoteTreasurer}
-          />
-        ))}
-      </div>
+      {clubs.length === 0 ? (
+        <p className="empty">Chưa có câu lạc bộ. Hãy gửi hồ sơ thành lập để bắt đầu.</p>
+      ) : (
+        <div className="list-grid club-grid">
+          {clubs.map((club) => (
+            <ClubCard
+              key={club.id}
+              club={club}
+              currentUser={currentUser}
+              managers={managers}
+              isAdmin={isAdmin}
+              isOwner={ownedClubIds.has(club.id)}
+              busy={busy}
+              myMembership={myMembershipByClub.get(club.id)}
+              joinDraft={joinDrafts[club.id] ?? createJoinClubDraft()}
+              assignManager={assignManager}
+              toggleClubActive={toggleClubActive}
+              deleteClub={deleteClub}
+              joinClub={joinClub}
+              setJoinDraftField={setJoinDraftField}
+              approveMembership={approveMembership}
+              rejectMembership={rejectMembership}
+              assignTreasurer={assignTreasurer}
+              demoteTreasurer={demoteTreasurer}
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -2026,65 +2119,70 @@ function ClubCard({
       <p>{club.description}</p>
       <dl>
         <div><dt>Email</dt><dd>{club.contactEmail}</dd></div>
-        <div><dt>Phone</dt><dd>{club.contactPhone}</dd></div>
-        <div><dt>Owner</dt><dd>{activeManager?.managerName ?? "Unassigned"}</dd></div>
-        <div><dt>Members</dt><dd>{approvedMembers.length} approved / {pendingMembers.length} pending</dd></div>
+        <div><dt>Điện thoại</dt><dd>{club.contactPhone}</dd></div>
+        <div><dt>Chủ nhiệm</dt><dd>{activeManager?.managerName ?? "Chưa phân công"}</dd></div>
+        <div><dt>Thành viên</dt><dd>{approvedMembers.length} đã duyệt / {pendingMembers.length} chờ duyệt</dd></div>
       </dl>
       {!isAdmin && (
         <div className="membership-state">
-          {isOwner && <span className="badge success">Owner</span>}
-          {myMembership && <span className={`badge ${myMembership.status === "Approved" ? "success" : myMembership.status === "Pending" ? "info" : "danger"}`}>{myMembership.role} / {myMembership.status}</span>}
-          {!isCurrentUserInClub && <span className="muted-text">Not joined</span>}
+          {isOwner && <span className="badge success">Chủ nhiệm</span>}
+          {myMembership && <span className={`badge ${myMembership.status === "Approved" ? "success" : myMembership.status === "Pending" ? "info" : "danger"}`}>{displayRole(myMembership.role)} / {displayStatus(myMembership.status)}</span>}
+          {!isCurrentUserInClub && <span className="muted-text">Chưa tham gia</span>}
         </div>
       )}
       {canJoin && (
         <form className="join-request-form" onSubmit={(event) => {
           event.preventDefault();
           joinClub(club);
-        }}>
+          }}>
           <div className="join-request-head">
-            <span><UsersRound size={15} aria-hidden /> Join request</span>
-            <small>Sent to the club owner for review</small>
+            <span><UsersRound size={15} aria-hidden /> Đơn tham gia</span>
+            <small>Đơn sẽ được gửi tới chủ nhiệm câu lạc bộ</small>
           </div>
           <label>
-            Personal info
-            <textarea value={joinDraft.personalInfo} onChange={(event) => setJoinDraftField(club.id, "personalInfo", event.target.value)} placeholder="Student ID, class, phone, current skills..." />
+            Thông tin cá nhân
+            <textarea value={joinDraft.personalInfo} onChange={(event) => setJoinDraftField(club.id, "personalInfo", event.target.value)} placeholder="Mã sinh viên, lớp, số điện thoại, kỹ năng hiện có..." />
           </label>
           <label>
-            Goals
-            <textarea value={joinDraft.goals} onChange={(event) => setJoinDraftField(club.id, "goals", event.target.value)} placeholder="What do you want to learn or contribute?" />
+            Mục tiêu
+            <textarea value={joinDraft.goals} onChange={(event) => setJoinDraftField(club.id, "goals", event.target.value)} placeholder="Bạn muốn học hỏi hoặc đóng góp điều gì?" />
           </label>
           <label>
-            Reason
-            <textarea value={joinDraft.reason} onChange={(event) => setJoinDraftField(club.id, "reason", event.target.value)} placeholder="Why this club fits you." />
+            Lý do tham gia
+            <textarea value={joinDraft.reason} onChange={(event) => setJoinDraftField(club.id, "reason", event.target.value)} placeholder="Vì sao câu lạc bộ này phù hợp với bạn?" />
           </label>
           <button className="secondary" type="submit" disabled={busy}>
             <Send size={16} aria-hidden />
-            Request to join
+            Gửi đơn tham gia
           </button>
         </form>
       )}
       {isAdmin && (
         <div className="card-actions">
-          <select aria-label={`Assign manager for ${club.name}`} defaultValue="" onChange={(event) => event.target.value && assignManager(club, Number(event.target.value))} disabled={busy || managers.length === 0}>
-            <option value="">Assign owner</option>
+          <select aria-label={`Phân công chủ nhiệm cho ${club.name}`} defaultValue="" onChange={(event) => event.target.value && assignManager(club, Number(event.target.value))} disabled={busy || managers.length === 0}>
+            <option value="">Phân công chủ nhiệm</option>
             {managers.map((manager) => (
               <option value={manager.id} key={manager.id}>{manager.fullName}</option>
             ))}
           </select>
           <button type="button" onClick={() => toggleClubActive(club)} disabled={busy}>
-            {club.isActive ? "Deactivate" : "Activate"}
+            {club.isActive ? "Tạm ngưng" : "Kích hoạt"}
           </button>
-          <button type="button" onClick={() => deleteClub(club.id)} disabled={busy}>
-            Delete
+          <button
+            className="danger-action"
+            type="button"
+            onClick={() => window.confirm(`Xóa câu lạc bộ ${club.name}? Thao tác này không thể hoàn tác.`) && deleteClub(club.id)}
+            disabled={busy}
+          >
+            Xóa
           </button>
         </div>
       )}
       {canManageMembers && (
         <div className="member-panel">
           <div className="member-panel-head">
-            <strong>Membership workflow</strong>
-            <span>{treasurers.length}/2 treasurers</span>
+            <strong>Quy trình thành viên</strong>
+            <span>{treasurers.length}/2 thủ quỹ</span>
           </div>
           {pendingMembers.length > 0 && (
             <div className="member-list">
@@ -2092,16 +2190,16 @@ function ClubCard({
                 <div className="member-row member-row-detail" key={member.id}>
                   <div className="member-request-copy">
                     <span>{member.fullName}</span>
-                    <small>{member.requestMessage ?? "No message"}</small>
+                    <small>{member.requestMessage ?? "Không có lời nhắn"}</small>
                     <dl className="member-request-detail">
-                      <div><dt>Personal info</dt><dd>{member.personalInfo || "Not provided"}</dd></div>
-                      <div><dt>Goals</dt><dd>{member.goals || "Not provided"}</dd></div>
-                      <div><dt>Reason</dt><dd>{member.reason || "Not provided"}</dd></div>
+                      <div><dt>Thông tin cá nhân</dt><dd>{member.personalInfo || "Chưa cung cấp"}</dd></div>
+                      <div><dt>Mục tiêu</dt><dd>{member.goals || "Chưa cung cấp"}</dd></div>
+                      <div><dt>Lý do tham gia</dt><dd>{member.reason || "Chưa cung cấp"}</dd></div>
                     </dl>
                   </div>
                   <div className="member-request-actions">
-                    <button type="button" onClick={() => approveMembership(member.id)} disabled={busy}>Approve</button>
-                    <button type="button" onClick={() => rejectMembership(member.id)} disabled={busy}>Reject</button>
+                    <button type="button" onClick={() => approveMembership(member.id)} disabled={busy}>Phê duyệt</button>
+                    <button type="button" onClick={() => rejectMembership(member.id)} disabled={busy}>Từ chối</button>
                   </div>
                 </div>
               ))}
@@ -2113,9 +2211,9 @@ function ClubCard({
                 <span>{member.fullName}</span>
                 <StatusBadgeLike status={member.role} />
                 {member.role === "TREASURER" ? (
-                  <button type="button" onClick={() => demoteTreasurer(member)} disabled={busy}>Make member</button>
+                  <button type="button" onClick={() => demoteTreasurer(member)} disabled={busy}>Chuyển thành viên</button>
                 ) : (
-                  <button type="button" onClick={() => assignTreasurer(club, member)} disabled={busy || treasurers.length >= 2}>Assign treasurer</button>
+                  <button type="button" onClick={() => assignTreasurer(club, member)} disabled={busy || treasurers.length >= 2}>Giao quyền thủ quỹ</button>
                 )}
               </div>
             ))}
@@ -2162,40 +2260,40 @@ function ActivitiesView({
     <section className="surface">
       <div className="surface-head">
         <div>
-          <span className="section-kicker"><CalendarDays size={15} aria-hidden /> Calendar</span>
-          <h2>Activity Calendar</h2>
-          <p>{activities.length} scheduled and completed club activities.</p>
+          <span className="section-kicker"><CalendarDays size={15} aria-hidden /> Lịch hoạt động</span>
+          <h2>Hoạt động câu lạc bộ</h2>
+          <p>{activities.length} hoạt động đã lên lịch hoặc đã hoàn tất.</p>
         </div>
       </div>
       {canCreateActivity && (
-        <form className="module-form" onSubmit={handleSaveActivity} aria-label="Save activity">
+        <form className="module-form" onSubmit={handleSaveActivity} aria-label="Lưu hoạt động">
           <div className="module-form-head">
             <div>
-              <span className="section-kicker"><CalendarDays size={15} aria-hidden /> Activity input</span>
-              <h3>{activityDraft.editingActivityId ? "Edit activity" : "Create activity"}</h3>
+              <span className="section-kicker"><CalendarDays size={15} aria-hidden /> Thông tin hoạt động</span>
+              <h3>{activityDraft.editingActivityId ? "Chỉnh sửa hoạt động" : "Tạo hoạt động"}</h3>
             </div>
             <button className="primary" type="submit" disabled={busy || clubs.length === 0}>
               <CalendarDays size={18} aria-hidden />
-              {activityDraft.editingActivityId ? "Save activity" : "Create activity"}
+              {activityDraft.editingActivityId ? "Lưu hoạt động" : "Tạo hoạt động"}
             </button>
           </div>
           <div className="module-form-grid">
             <label>
-              Club
+              Câu lạc bộ
               <select value={activityDraft.clubId} onChange={(event) => setActivityDraftField("clubId", event.target.value)} disabled={clubs.length === 0}>
                 {clubs.map((club) => <option value={club.id} key={club.id}>{club.name}</option>)}
               </select>
             </label>
             <label>
-              Title
-              <input value={activityDraft.title} onChange={(event) => setActivityDraftField("title", event.target.value)} placeholder="Workshop, event, competition..." />
+              Tên hoạt động
+              <input value={activityDraft.title} onChange={(event) => setActivityDraftField("title", event.target.value)} placeholder="Workshop, sự kiện, cuộc thi..." />
             </label>
             <label>
-              Location
-              <input value={activityDraft.location} onChange={(event) => setActivityDraftField("location", event.target.value)} placeholder="FPTU hall, room, online link..." />
+              Địa điểm
+              <input value={activityDraft.location} onChange={(event) => setActivityDraftField("location", event.target.value)} placeholder="Hội trường FPTU, phòng học, đường dẫn trực tuyến..." />
             </label>
             <label>
-              Start
+              Bắt đầu
               <input
                 type="datetime-local"
                 value={activityDraft.startTime}
@@ -2204,7 +2302,7 @@ function ActivitiesView({
               />
             </label>
             <label>
-              End
+              Kết thúc
               <input
                 type="datetime-local"
                 value={activityDraft.endTime}
@@ -2213,16 +2311,16 @@ function ActivitiesView({
               />
             </label>
             <label>
-              Status
+              Trạng thái
               <select value={activityDraft.status} onChange={(event) => setActivityDraftField("status", event.target.value)}>
-                <option value="Scheduled">Scheduled</option>
-                <option value="Completed">Completed</option>
-                <option value="Cancelled">Cancelled</option>
+                <option value="Scheduled">Đã lên lịch</option>
+                <option value="Completed">Hoàn tất</option>
+                <option value="Cancelled">Đã hủy</option>
               </select>
             </label>
             <label className="span-2">
-              Description
-              <textarea value={activityDraft.description} onChange={(event) => setActivityDraftField("description", event.target.value)} placeholder="Agenda, objective, expected outcome, organizer notes." />
+              Mô tả
+              <textarea value={activityDraft.description} onChange={(event) => setActivityDraftField("description", event.target.value)} placeholder="Nội dung, mục tiêu, kết quả dự kiến và ghi chú tổ chức." />
             </label>
           </div>
         </form>
@@ -2260,7 +2358,7 @@ function ActivityList({
   setParticipantDraft?: (id: number, value: string) => void;
   completeActivity?: (id: number) => void;
 }) {
-  if (activities.length === 0) return <p className="empty">No activities loaded.</p>;
+  if (activities.length === 0) return <p className="empty">Chưa có hoạt động. Hãy tạo hoạt động đầu tiên cho câu lạc bộ.</p>;
   return (
     <div className="activity-list">
       {activities.map((activity) => (
@@ -2271,16 +2369,16 @@ function ActivityList({
             <span>{activity.clubName}</span>
           </div>
           <div className="activity-meta">
-            <span><Clock3 size={14} aria-hidden /> {new Date(activity.startTimeUtc).toLocaleString()}</span>
+            <span><Clock3 size={14} aria-hidden /> {formatDateTime(activity.startTimeUtc)}</span>
             <span>{activity.location}</span>
           </div>
-          <span className={`badge ${activity.status === "Completed" ? "success" : "info"}`}>{activity.participants.length} joined</span>
+          <span className={`badge ${activity.status === "Completed" ? "success" : "info"}`}>{activity.participants.length} người tham gia</span>
           {canManage && (
             <div className="activity-actions">
-              <button type="button" onClick={() => editActivity?.(activity)} disabled={busy}>Edit</button>
-              {activity.status !== "Completed" && <button type="button" onClick={() => completeActivity?.(activity.id)} disabled={busy}>Complete</button>}
-              <input value={participantDrafts[activity.id] ?? ""} onChange={(event) => setParticipantDraft?.(activity.id, event.target.value)} placeholder="Participant name" />
-              <button type="button" onClick={() => addParticipant?.(activity.id)} disabled={busy}>Add participant</button>
+              <button type="button" onClick={() => editActivity?.(activity)} disabled={busy}>Sửa</button>
+              {activity.status !== "Completed" && <button type="button" onClick={() => completeActivity?.(activity.id)} disabled={busy}>Hoàn tất</button>}
+              <input value={participantDrafts[activity.id] ?? ""} onChange={(event) => setParticipantDraft?.(activity.id, event.target.value)} placeholder="Tên người tham gia" />
+              <button type="button" onClick={() => addParticipant?.(activity.id)} disabled={busy}>Thêm người tham gia</button>
             </div>
           )}
         </article>
@@ -2295,16 +2393,16 @@ function KpiView({ leaderboard }: { leaderboard: KpiLeaderboard | null }) {
     <section className="surface">
       <div className="surface-head">
         <div>
-          <span className="section-kicker"><Trophy size={15} aria-hidden /> Performance</span>
-          <h2>KPI Leaderboard</h2>
-          <p>Ranking clubs by approved reports, participation, and activity performance.</p>
+          <span className="section-kicker"><Trophy size={15} aria-hidden /> Hiệu quả hoạt động</span>
+          <h2>Bảng xếp hạng KPI</h2>
+          <p>Xếp hạng câu lạc bộ theo báo cáo đã duyệt, mức độ tham gia và hiệu quả hoạt động.</p>
         </div>
-        <span className="muted-text">{leaderboard?.period ?? "All periods"}</span>
+        <span className="muted-text">{leaderboard?.period ?? "Tất cả kỳ"}</span>
       </div>
       {(!leaderboard || leaderboard.clubs.length === 0) ? (
-        <p className="empty">No KPI data loaded.</p>
+        <p className="empty">Chưa có dữ liệu KPI. Điểm sẽ được cập nhật khi có báo cáo và hoạt động đã duyệt.</p>
       ) : (
-        <div className="leaderboard" aria-label="KPI leaderboard">
+        <div className="leaderboard" aria-label="Bảng xếp hạng KPI">
           {leaderboard.clubs.map((club) => (
             <article className="rank-card" key={club.clubId}>
               <span className="rank-number">#{club.rank}</span>
@@ -2314,8 +2412,8 @@ function KpiView({ leaderboard }: { leaderboard: KpiLeaderboard | null }) {
               </div>
               <div className="rank-stats">
                 <strong>{club.points}</strong>
-                <span>{club.approvedReports} approved</span>
-                <span>{club.participants} participants</span>
+                <span>{club.approvedReports} báo cáo đã duyệt</span>
+                <span>{club.participants} người tham gia</span>
               </div>
             </article>
           ))}
@@ -2354,54 +2452,54 @@ function FinanceView(props: {
     <section className="surface">
       <div className="surface-head">
         <div>
-          <span className="section-kicker"><WalletCards size={15} aria-hidden /> Finance</span>
-          <h2>Budget Proposals</h2>
-          <p>{props.proposals.length} proposals with requested amounts and settlement status.</p>
+          <span className="section-kicker"><WalletCards size={15} aria-hidden /> Tài chính</span>
+          <h2>Đề xuất ngân sách</h2>
+          <p>{props.proposals.length} đề xuất kèm số tiền yêu cầu và trạng thái quyết toán.</p>
         </div>
       </div>
       {props.canManageFinance && (
-        <form className="module-form" onSubmit={handleCreateProposal} aria-label="Create budget proposal">
+        <form className="module-form" onSubmit={handleCreateProposal} aria-label="Tạo đề xuất ngân sách">
           <div className="module-form-head">
             <div>
-              <span className="section-kicker"><WalletCards size={15} aria-hidden /> Proposal input</span>
-              <h3>Create budget proposal</h3>
+              <span className="section-kicker"><WalletCards size={15} aria-hidden /> Thông tin đề xuất</span>
+              <h3>Tạo đề xuất ngân sách</h3>
             </div>
             <button className="primary" type="submit" disabled={props.busy || props.clubs.length === 0}>
               <WalletCards size={18} aria-hidden />
-              Create proposal
+              Tạo đề xuất
             </button>
           </div>
           <div className="module-form-grid">
             <label>
-              Club
+              Câu lạc bộ
               <select value={props.financeDraft.clubId} onChange={(event) => props.setFinanceDraftField("clubId", event.target.value)} disabled={props.clubs.length === 0}>
                 {props.clubs.map((club) => <option value={club.id} key={club.id}>{club.name}</option>)}
               </select>
             </label>
             <label>
-              Related activity
+              Hoạt động liên quan
               <select value={props.financeDraft.activityId} onChange={(event) => props.setFinanceDraftField("activityId", event.target.value)}>
-                <option value="">No activity</option>
+                <option value="">Không gắn hoạt động</option>
                 {activityOptions.map((activity) => <option value={activity.id} key={activity.id}>{activity.title}</option>)}
               </select>
             </label>
             <label>
-              Requested amount
+              Số tiền đề xuất
               <input type="number" min="1" value={props.financeDraft.requestedAmount} onChange={(event) => props.setFinanceDraftField("requestedAmount", event.target.value)} placeholder="3000000" />
             </label>
             <label className="span-2">
-              Title
-              <input value={props.financeDraft.title} onChange={(event) => props.setFinanceDraftField("title", event.target.value)} placeholder="Event budget, workshop supplies..." />
+              Tiêu đề
+              <input value={props.financeDraft.title} onChange={(event) => props.setFinanceDraftField("title", event.target.value)} placeholder="Ngân sách sự kiện, vật tư workshop..." />
             </label>
             <label className="span-2">
-              Description
-              <textarea value={props.financeDraft.description} onChange={(event) => props.setFinanceDraftField("description", event.target.value)} placeholder="What this budget covers and why it is needed." />
+              Nội dung chi tiết
+              <textarea value={props.financeDraft.description} onChange={(event) => props.setFinanceDraftField("description", event.target.value)} placeholder="Ngân sách dùng cho hạng mục nào và vì sao cần thiết?" />
             </label>
           </div>
         </form>
       )}
       {props.proposals.length === 0 ? (
-        <p className="empty">No budget proposals loaded.</p>
+        <p className="empty">Chưa có đề xuất ngân sách.</p>
       ) : (
         <div className="budget-grid">
           {props.proposals.map((proposal) => (
@@ -2415,35 +2513,35 @@ function FinanceView(props: {
                 <span>{proposal.clubName}</span>
                 <b>{formatCurrency(proposal.requestedAmount)}</b>
                 <small>{proposal.description}</small>
-                <small>{proposal.settlements.length} settlement{proposal.settlements.length === 1 ? "" : "s"}</small>
+                <small>{proposal.settlements.length} quyết toán</small>
               </div>
               <div className="finance-actions">
                 {props.isAdmin && proposal.status === "Submitted" && (
                   <>
-                    <button type="button" disabled={props.busy} onClick={() => props.approveProposal(proposal.id, proposal.requestedAmount)} title="Approve budget proposal">
+                    <button type="button" disabled={props.busy} onClick={() => props.approveProposal(proposal.id, proposal.requestedAmount)} title="Phê duyệt đề xuất ngân sách">
                       <CheckCircle2 size={16} aria-hidden />
-                      Approve
+                      Phê duyệt
                     </button>
-                    <button type="button" disabled={props.busy} onClick={() => props.rejectProposal(proposal.id)} title="Reject budget proposal">
+                    <button type="button" disabled={props.busy} onClick={() => props.rejectProposal(proposal.id)} title="Từ chối đề xuất ngân sách">
                       <XCircle size={16} aria-hidden />
-                      Reject
+                      Từ chối
                     </button>
                   </>
                 )}
                 {proposal.status === "Approved" && (
                   <div className="settlement-form">
-                    <input type="number" min="1" value={props.settlementDrafts[proposal.id]?.totalSpent ?? ""} onChange={(event) => props.setSettlementDraft(proposal.id, "totalSpent", event.target.value)} placeholder="Spent amount" />
-                    <input value={props.settlementDrafts[proposal.id]?.receiptUrl ?? ""} onChange={(event) => props.setSettlementDraft(proposal.id, "receiptUrl", event.target.value)} placeholder="Receipt URL" />
-                    <button type="button" disabled={props.busy} onClick={() => props.createSettlement(proposal.id)}>Submit settlement</button>
+                    <input type="number" min="1" value={props.settlementDrafts[proposal.id]?.totalSpent ?? ""} onChange={(event) => props.setSettlementDraft(proposal.id, "totalSpent", event.target.value)} placeholder="Số tiền đã chi" />
+                    <input value={props.settlementDrafts[proposal.id]?.receiptUrl ?? ""} onChange={(event) => props.setSettlementDraft(proposal.id, "receiptUrl", event.target.value)} placeholder="Đường dẫn biên lai" />
+                    <button type="button" disabled={props.busy} onClick={() => props.createSettlement(proposal.id)}>Gửi quyết toán</button>
                   </div>
                 )}
                 {proposal.settlements.map((settlement) => (
                   <div className="settlement-row" key={settlement.id}>
-                    <span>{formatCurrency(settlement.totalSpent)} / {settlement.status}</span>
-                    {settlement.receiptUrl && <a href={settlement.receiptUrl} target="_blank" rel="noreferrer">Receipt</a>}
+                    <span>{formatCurrency(settlement.totalSpent)} / {displayStatus(settlement.status)}</span>
+                    {settlement.receiptUrl && <a href={settlement.receiptUrl} target="_blank" rel="noreferrer">Biên lai</a>}
                     {props.isAdmin && settlement.status === "Submitted" && (
                       <button type="button" disabled={props.busy} onClick={() => props.approveSettlement(settlement.id)}>
-                        Approve settlement
+                        Duyệt quyết toán
                       </button>
                     )}
                   </div>
@@ -2476,42 +2574,42 @@ function ExportsView({
     <section className="surface">
       <div className="surface-head">
         <div>
-          <span className="section-kicker"><FileSpreadsheet size={15} aria-hidden /> Exports</span>
-          <h2>Export History</h2>
-          <p>{exportsList.length} generated or pending report files.</p>
+          <span className="section-kicker"><FileSpreadsheet size={15} aria-hidden /> Xuất file</span>
+          <h2>Lịch sử xuất báo cáo</h2>
+          <p>{exportsList.length} file đã tạo hoặc đang chờ xử lý.</p>
         </div>
         <div className="split-actions">
-          <button type="button" onClick={() => createExport("PDF")} disabled={busy} title="Create PDF export">
+          <button type="button" onClick={() => createExport("PDF")} disabled={busy} title="Tạo file PDF">
             <Download size={16} aria-hidden />
             PDF
           </button>
-          <button type="button" onClick={() => createExport("EXCEL")} disabled={busy} title="Create Excel export">
+          <button type="button" onClick={() => createExport("EXCEL")} disabled={busy} title="Tạo file Excel">
             <FileSpreadsheet size={16} aria-hidden />
             Excel
           </button>
         </div>
       </div>
       {exportsList.length === 0 ? (
-        <p className="empty">No exports loaded.</p>
+        <p className="empty">Chưa có file xuất. Hãy tạo PDF hoặc Excel tổng hợp đầu tiên.</p>
       ) : (
-        <div className="export-grid" aria-label="Exports">
+        <div className="export-grid" aria-label="Danh sách file xuất">
           {exportsList.map((item) => (
             <article className="export-card" key={item.id}>
               <div>
                 <span className="export-type">{item.exportType}</span>
-                <strong>Export #{item.id}</strong>
+                <strong>File xuất #{item.id}</strong>
                 <small>{item.scope}</small>
               </div>
               <StatusBadgeLike status={item.status} />
-              <span className="export-file">{item.file?.fileName ?? "Pending file"}</span>
+              <span className="export-file">{item.file?.fileName ?? "Đang chờ tạo file"}</span>
               <div className="card-actions">
                 <button type="button" onClick={() => downloadExport(item)} disabled={busy || !item.file?.isAvailable}>
                   <Download size={16} aria-hidden />
-                  Download
+                  Tải xuống
                 </button>
                 {isAdmin && (
-                  <button type="button" onClick={() => deleteExport(item.id)} disabled={busy}>
-                    Delete
+                  <button className="danger-action" type="button" onClick={() => window.confirm(`Xóa file xuất #${item.id}?`) && deleteExport(item.id)} disabled={busy}>
+                    Xóa
                   </button>
                 )}
               </div>
@@ -2528,9 +2626,9 @@ function NotificationsView({ notifications, markRead }: { notifications: Notific
     <section className="surface">
       <div className="surface-head">
         <div>
-          <span className="section-kicker"><Bell size={15} aria-hidden /> Signals</span>
-          <h2>Notifications</h2>
-          <p>{notifications.filter((item) => !item.isRead).length} unread items across club workflows.</p>
+          <span className="section-kicker"><Bell size={15} aria-hidden /> Luồng công việc</span>
+          <h2>Thông báo</h2>
+          <p>{notifications.filter((item) => !item.isRead).length} thông báo chưa đọc trong các quy trình câu lạc bộ.</p>
         </div>
       </div>
       <NotificationList notifications={notifications} markRead={markRead} />
@@ -2562,9 +2660,9 @@ function UsersView({
     <section className="surface">
       <div className="surface-head">
         <div>
-          <span className="section-kicker"><UserRoundCog size={15} aria-hidden /> Access control</span>
-          <h2>Users & Roles</h2>
-          <p>{users.length} accounts with editable role assignments.</p>
+          <span className="section-kicker"><UserRoundCog size={15} aria-hidden /> Kiểm soát truy cập</span>
+          <h2>Người dùng và vai trò</h2>
+          <p>{users.length} tài khoản. Tài khoản mới luôn bắt đầu với quyền thành viên.</p>
         </div>
       </div>
       <div className="user-role-list">
@@ -2584,7 +2682,7 @@ function UsersView({
                     disabled={busy}
                     onChange={(event) => updateUserRole(user, role, event.currentTarget.checked)}
                   />
-                  <span>{role.split("_").join(" ")}</span>
+                  <span>{displayRole(role)}</span>
                 </label>
               ))}
             </div>
@@ -2596,7 +2694,7 @@ function UsersView({
 }
 
 function ReportList({ reports }: { reports: Report[] }) {
-  if (reports.length === 0) return <p className="empty">No reports loaded.</p>;
+  if (reports.length === 0) return <p className="empty">Chưa có báo cáo.</p>;
   return (
     <div className="signal-list">
       {reports.map((report) => (
@@ -2614,7 +2712,7 @@ function ReportList({ reports }: { reports: Report[] }) {
 }
 
 function NotificationList({ notifications, markRead }: { notifications: NotificationItem[]; markRead?: (id: number) => void }) {
-  if (notifications.length === 0) return <p className="empty">No notifications.</p>;
+  if (notifications.length === 0) return <p className="empty">Không có thông báo mới.</p>;
   return (
     <div className="signal-list">
       {notifications.map((item) => (
@@ -2625,7 +2723,7 @@ function NotificationList({ notifications, markRead }: { notifications: Notifica
             <span>{item.message}</span>
           </div>
           {markRead && !item.isRead && (
-            <button type="button" onClick={() => markRead(item.id)} title="Mark notification as read">
+            <button type="button" onClick={() => markRead(item.id)} title="Đánh dấu đã đọc">
               <CheckCircle2 size={16} aria-hidden />
             </button>
           )}
@@ -2640,18 +2738,18 @@ function AccessNotice({ title }: { title: string }) {
     <section className="surface">
       <div className="surface-head">
         <div>
-          <span className="section-kicker"><ShieldCheck size={15} aria-hidden /> Role access</span>
+          <span className="section-kicker"><ShieldCheck size={15} aria-hidden /> Quyền truy cập</span>
           <h2>{title}</h2>
-          <p>This workspace area is hidden for the current demo role so the app does not call forbidden APIs.</p>
+          <p>Khu vực này không khả dụng với vai trò hiện tại nên hệ thống sẽ không gọi các API không có quyền.</p>
         </div>
       </div>
-      <p className="empty">Use an Admin or Club Manager demo account for this workflow.</p>
+      <p className="empty">Hãy liên hệ quản trị viên nếu bạn cần thêm quyền cho quy trình này.</p>
     </section>
   );
 }
 
 function StatusBadge({ status }: { status: ReportStatus }) {
-  return <span className={`badge ${statusTone[status]}`}>{status}</span>;
+  return <span className={`badge ${statusTone[status]}`}>{displayStatus(status)}</span>;
 }
 
 function StatusBadgeLike({ status }: { status: string }) {
@@ -2663,7 +2761,7 @@ function StatusBadgeLike({ status }: { status: string }) {
         ? "info"
         : "neutral";
 
-  return <span className={`badge ${tone}`}>{status}</span>;
+  return <span className={`badge ${tone}`}>{roleLabels[status] ? displayRole(status) : displayStatus(status)}</span>;
 }
 
 function SectionTitle({ icon, title, meta }: { icon: JSX.Element; title: string; meta?: string }) {
@@ -2691,28 +2789,28 @@ function formatCurrency(value: number) {
 
 function viewLabel(view: View) {
   return {
-    dashboard: "Dashboard",
-    reports: "Reports",
-    clubs: "Clubs",
-    activities: "Activities",
+    dashboard: "Tổng quan",
+    reports: "Báo cáo",
+    clubs: "Câu lạc bộ",
+    activities: "Hoạt động",
     kpi: "KPI",
-    finance: "Finance",
-    exports: "Exports",
-    notifications: "Notifications",
-    users: "Users"
+    finance: "Tài chính",
+    exports: "Xuất file",
+    notifications: "Thông báo",
+    users: "Người dùng"
   }[view];
 }
 
 function viewSubtitle(view: View) {
   return {
-    dashboard: "Operational snapshot for clubs, reports, KPI, finance, and signals.",
-    reports: "Move monthly reports from draft to review, approval, or rejection.",
-    clubs: "Scan club ownership, contacts, and manager assignments.",
-    activities: "Follow scheduled work, locations, participation, and outcomes.",
-    kpi: "Compare club performance with a clearer ranking view.",
-    finance: "Review proposals, requested budgets, and settlement progress.",
-    exports: "Create and monitor consolidated PDF or Excel exports.",
-    notifications: "Resolve workflow signals before they pile up.",
-    users: "Manage account roles, access, and workflow ownership."
+    dashboard: "Theo dõi nhanh câu lạc bộ, báo cáo, KPI, tài chính và việc cần xử lý.",
+    reports: "Tạo báo cáo và đưa qua các bước gửi, kiểm duyệt, phê duyệt hoặc từ chối.",
+    clubs: "Quản lý chủ nhiệm, thành viên, đơn tham gia và hồ sơ thành lập câu lạc bộ.",
+    activities: "Theo dõi lịch, địa điểm, người tham gia và kết quả hoạt động.",
+    kpi: "So sánh hiệu quả hoạt động của các câu lạc bộ theo dữ liệu đã duyệt.",
+    finance: "Quản lý đề xuất ngân sách và tiến độ quyết toán.",
+    exports: "Tạo và theo dõi file tổng hợp PDF hoặc Excel.",
+    notifications: "Xử lý thông báo công việc trước khi bị tồn đọng.",
+    users: "Quản lý vai trò, quyền truy cập và trách nhiệm của từng tài khoản."
   }[view];
 }

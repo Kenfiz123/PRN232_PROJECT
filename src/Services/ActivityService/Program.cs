@@ -13,6 +13,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<ActivityDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddClubReportJwt(builder.Configuration);
+builder.Services.AddClubAccessClient(builder.Configuration);
 builder.Services.AddRabbitMqEventBus(builder.Configuration);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -89,6 +90,8 @@ activities.MapPost("/", async (
     ActivityDbContext db,
     IEventBus eventBus,
     ClaimsPrincipal user,
+    HttpContext httpContext,
+    ClubAccessClient clubAccess,
     CancellationToken cancellationToken) =>
 {
     if (request.EndTimeUtc <= request.StartTimeUtc)
@@ -96,10 +99,22 @@ activities.MapPost("/", async (
         return Results.BadRequest(new { message = "End time must be after start time." });
     }
 
+    var access = (await clubAccess.GetMyAccessAsync(httpContext.GetBearerToken(), cancellationToken))
+        .FirstOrDefault(x => x.ClubId == request.ClubId && x.CanManage);
+    if (access is null)
+    {
+        return Results.Forbid();
+    }
+
+    if (string.IsNullOrWhiteSpace(request.Title) || string.IsNullOrWhiteSpace(request.Location))
+    {
+        return Results.BadRequest(new { message = "Activity title and location are required." });
+    }
+
     var activity = new ClubActivity
     {
         ClubId = request.ClubId,
-        ClubName = request.ClubName.Trim(),
+        ClubName = access.ClubName,
         Title = request.Title.Trim(),
         Description = request.Description.Trim(),
         StartTimeUtc = request.StartTimeUtc,
@@ -121,14 +136,25 @@ activities.MapPost("/", async (
         activity.StartTimeUtc), EventRoutingKeys.ActivityCreated, cancellationToken);
 
     return Results.Created($"/api/activities/{activity.Id}", ToResponse(activity));
-}).RequireAuthorization(AuthPolicies.AdminOrClubManager);
+});
 
-activities.MapPut("/{id:int}", async (int id, UpdateActivityRequest request, ActivityDbContext db) =>
+activities.MapPut("/{id:int}", async (
+    int id,
+    UpdateActivityRequest request,
+    ActivityDbContext db,
+    HttpContext httpContext,
+    ClubAccessClient clubAccess,
+    CancellationToken cancellationToken) =>
 {
-    var activity = await db.Activities.Include(x => x.Participants).FirstOrDefaultAsync(x => x.Id == id);
+    var activity = await db.Activities.Include(x => x.Participants).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     if (activity is null)
     {
         return Results.NotFound();
+    }
+
+    if (!await CanManageClubAsync(activity.ClubId, clubAccess, httpContext, cancellationToken))
+    {
+        return Results.Forbid();
     }
 
     if (request.EndTimeUtc <= request.StartTimeUtc)
@@ -145,21 +171,36 @@ activities.MapPut("/{id:int}", async (int id, UpdateActivityRequest request, Act
     activity.UpdatedAtUtc = DateTimeOffset.UtcNow;
     await db.SaveChangesAsync();
     return Results.Ok(ToResponse(activity));
-}).RequireAuthorization(AuthPolicies.AdminOrClubManager);
+});
 
 activities.MapPost("/{id:int}/participants", async (
     int id,
     RegisterActivityParticipantRequest request,
     ActivityDbContext db,
-    ClaimsPrincipal user) =>
+    ClaimsPrincipal user,
+    HttpContext httpContext,
+    ClubAccessClient clubAccess,
+    CancellationToken cancellationToken) =>
 {
-    var activity = await db.Activities.Include(x => x.Participants).FirstOrDefaultAsync(x => x.Id == id);
+    var activity = await db.Activities.Include(x => x.Participants).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     if (activity is null)
     {
         return Results.NotFound();
     }
 
     var userId = request.UserId ?? user.GetUserId();
+    var access = (await clubAccess.GetMyAccessAsync(httpContext.GetBearerToken(), cancellationToken))
+        .FirstOrDefault(x => x.ClubId == activity.ClubId && x.CanView);
+    if (access is null || (userId != user.GetUserId() && !access.CanManage))
+    {
+        return Results.Forbid();
+    }
+
+    if (activity.Status == ActivityStatuses.Completed)
+    {
+        return Results.BadRequest(new { message = "Completed activities no longer accept participants." });
+    }
+
     if (activity.Participants.Any(x => x.UserId == userId))
     {
         return Results.Conflict(new { message = "Participant is already registered for this activity." });
@@ -174,19 +215,29 @@ activities.MapPost("/{id:int}/participants", async (
     return Results.Ok(ToResponse(activity));
 });
 
-activities.MapPatch("/{id:int}/complete", async (int id, ActivityDbContext db) =>
+activities.MapPatch("/{id:int}/complete", async (
+    int id,
+    ActivityDbContext db,
+    HttpContext httpContext,
+    ClubAccessClient clubAccess,
+    CancellationToken cancellationToken) =>
 {
-    var activity = await db.Activities.Include(x => x.Participants).FirstOrDefaultAsync(x => x.Id == id);
+    var activity = await db.Activities.Include(x => x.Participants).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     if (activity is null)
     {
         return Results.NotFound();
+    }
+
+    if (!await CanManageClubAsync(activity.ClubId, clubAccess, httpContext, cancellationToken))
+    {
+        return Results.Forbid();
     }
 
     activity.Status = ActivityStatuses.Completed;
     activity.UpdatedAtUtc = DateTimeOffset.UtcNow;
     await db.SaveChangesAsync();
     return Results.Ok(ToResponse(activity));
-}).RequireAuthorization(AuthPolicies.AdminOrClubManager);
+});
 
 using (var scope = app.Services.CreateScope())
 {
@@ -219,3 +270,13 @@ static ActivityResponse ToResponse(ClubActivity activity) => new(
             x.AttendanceStatus,
             x.RegisteredAtUtc))
         .ToArray());
+
+static async Task<bool> CanManageClubAsync(
+    int clubId,
+    ClubAccessClient clubAccess,
+    HttpContext httpContext,
+    CancellationToken cancellationToken)
+{
+    var access = await clubAccess.GetMyAccessAsync(httpContext.GetBearerToken(), cancellationToken);
+    return access.Any(x => x.ClubId == clubId && x.CanManage);
+}

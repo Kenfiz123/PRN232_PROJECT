@@ -33,6 +33,7 @@ export type ClubMembership = {
   personalInfo: string;
   goals: string;
   reason: string;
+  reviewNote?: string;
   requestedAtUtc: string;
   reviewedAtUtc?: string;
   reviewedByUserId?: number;
@@ -492,7 +493,7 @@ export class ApiClient {
   async approveReport(id: number) {
     return this.request<Report>(`/api/reports/${id}/approve`, {
       method: "POST",
-      body: JSON.stringify({ feedback: "Approved from administrator dashboard." })
+      body: JSON.stringify({ feedback: "Báo cáo đã được quản trị viên phê duyệt." })
     });
   }
 
@@ -565,7 +566,7 @@ export class ApiClient {
   async approveBudgetProposal(id: number, approvedAmount?: number) {
     return this.request<BudgetProposal>(`/api/finance/proposals/${id}/approve`, {
       method: "POST",
-      body: JSON.stringify({ approvedAmount, note: "Approved from Student Affairs dashboard." })
+      body: JSON.stringify({ approvedAmount, note: "Ngân sách đã được quản trị công tác sinh viên phê duyệt." })
     });
   }
 

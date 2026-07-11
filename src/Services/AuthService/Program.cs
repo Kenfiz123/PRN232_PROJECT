@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using AuthService.Contracts;
 using AuthService.Data;
 using AuthService.Models;
@@ -105,7 +106,8 @@ auth.MapPost("/register", async (
 auth.MapPost("/refresh", () => Results.Problem("Refresh token flow is reserved for the production hardening step.", statusCode: StatusCodes.Status501NotImplemented))
     .RequireAuthorization();
 
-var users = app.MapGroup("/api/users").WithTags("Users").RequireAuthorization(AuthPolicies.AdminOnly);
+var users = app.MapGroup("/api/users").WithTags("Users").RequireAuthorization(policy =>
+    policy.RequireRole(AuthRoles.Admin, AuthRoles.SystemAdmin));
 users.MapGet("/", async (AuthDbContext db) =>
 {
     var usersResult = await db.Users
@@ -149,7 +151,7 @@ users.MapPost("/", async (
     return Results.Created($"/api/users/{user.Id}", ToSummary(user, withRoles: roles.Select(x => x.Name)));
 });
 
-users.MapPut("/{id:int}", async (int id, UpdateUserRequest request, AuthDbContext db) =>
+users.MapPut("/{id:int}", async (int id, UpdateUserRequest request, AuthDbContext db, ClaimsPrincipal actor) =>
 {
     var user = await db.Users.Include(x => x.UserRoles).ThenInclude(x => x.Role).FirstOrDefaultAsync(x => x.Id == id);
     if (user is null)
@@ -157,11 +159,47 @@ users.MapPut("/{id:int}", async (int id, UpdateUserRequest request, AuthDbContex
         return Results.NotFound();
     }
 
-    user.FullName = request.FullName;
-    user.Email = request.Email;
+    if (string.IsNullOrWhiteSpace(request.FullName) || string.IsNullOrWhiteSpace(request.Email) || request.Roles.Count == 0)
+    {
+        return Results.BadRequest(new { message = "Full name, email, and at least one role are required." });
+    }
+
+    if (await db.Users.AnyAsync(x => x.Id != id && x.Email == request.Email.Trim()))
+    {
+        return Results.Conflict(new { message = "Email already belongs to another account." });
+    }
+
+    var requestedRoleNames = request.Roles.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    var roles = await db.Roles.Where(x => requestedRoleNames.Contains(x.Name)).ToListAsync();
+    if (roles.Count != requestedRoleNames.Length)
+    {
+        return Results.BadRequest(new { message = "One or more requested roles are invalid." });
+    }
+
+    var keepsAdministrativeRole = roles.Any(x => x.Name == AuthRoles.Admin || x.Name == AuthRoles.SystemAdmin);
+    if (id == actor.GetUserId() && (!request.IsActive || !keepsAdministrativeRole))
+    {
+        return Results.BadRequest(new { message = "You cannot deactivate your own account or remove your own administrative access." });
+    }
+
+    var currentlyAdministrative = user.UserRoles.Any(x => x.Role.Name == AuthRoles.Admin || x.Role.Name == AuthRoles.SystemAdmin);
+    if (currentlyAdministrative && (!request.IsActive || !keepsAdministrativeRole))
+    {
+        var otherActiveAdministrators = await db.Users.CountAsync(x =>
+            x.Id != id
+            && x.IsActive
+            && !x.IsLocked
+            && x.UserRoles.Any(ur => ur.Role.Name == AuthRoles.Admin || ur.Role.Name == AuthRoles.SystemAdmin));
+        if (otherActiveAdministrators == 0)
+        {
+            return Results.Conflict(new { message = "The final active administrator cannot be deactivated or demoted." });
+        }
+    }
+
+    user.FullName = request.FullName.Trim();
+    user.Email = request.Email.Trim();
     user.IsActive = request.IsActive;
 
-    var roles = await db.Roles.Where(x => request.Roles.Contains(x.Name)).ToListAsync();
     db.UserRoles.RemoveRange(user.UserRoles);
     db.UserRoles.AddRange(roles.Select(role => new UserRole { UserId = user.Id, RoleId = role.Id }));
     await db.SaveChangesAsync();

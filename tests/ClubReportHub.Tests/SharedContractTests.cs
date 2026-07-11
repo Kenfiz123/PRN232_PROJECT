@@ -49,4 +49,24 @@ public sealed class SharedContractTests
 
         Assert.Equal(keys.Length, keys.Distinct(StringComparer.Ordinal).Count());
     }
+
+    [Theory]
+    [InlineData(true, false, false, true, true, true)]
+    [InlineData(false, true, true, false, true, true)]
+    [InlineData(false, false, true, false, false, true)]
+    [InlineData(false, false, false, false, false, false)]
+    public void ClubAccessSnapshotMapsMembershipCapabilities(
+        bool isManager,
+        bool isTreasurer,
+        bool isApprovedMember,
+        bool canManage,
+        bool canManageFinance,
+        bool canView)
+    {
+        var access = new ClubAccessSnapshot(42, "Test Club", isManager, isTreasurer, isApprovedMember, []);
+
+        Assert.Equal(canManage, access.CanManage);
+        Assert.Equal(canManageFinance, access.CanManageFinance);
+        Assert.Equal(canView, access.CanView);
+    }
 }

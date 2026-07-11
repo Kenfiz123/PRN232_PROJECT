@@ -47,6 +47,7 @@ public sealed class ClubDbContext(DbContextOptions<ClubDbContext> options) : DbC
             entity.Property(x => x.PersonalInfo).HasMaxLength(1000);
             entity.Property(x => x.Goals).HasMaxLength(1000);
             entity.Property(x => x.Reason).HasMaxLength(1000);
+            entity.Property(x => x.ReviewNote).HasMaxLength(1000);
         });
 
         modelBuilder.Entity<ClubCreationApplication>(entity =>

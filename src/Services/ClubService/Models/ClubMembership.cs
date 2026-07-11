@@ -13,6 +13,7 @@ public sealed class ClubMembership
     public string PersonalInfo { get; set; } = string.Empty;
     public string Goals { get; set; } = string.Empty;
     public string Reason { get; set; } = string.Empty;
+    public string? ReviewNote { get; set; }
     public DateTimeOffset RequestedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? ReviewedAtUtc { get; set; }
     public int? ReviewedByUserId { get; set; }

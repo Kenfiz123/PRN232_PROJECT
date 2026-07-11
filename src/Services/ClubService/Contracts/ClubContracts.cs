@@ -31,9 +31,18 @@ public sealed record ClubMembershipResponse(
     string PersonalInfo,
     string Goals,
     string Reason,
+    string? ReviewNote,
     DateTimeOffset RequestedAtUtc,
     DateTimeOffset? ReviewedAtUtc,
     int? ReviewedByUserId);
+
+public sealed record ClubAccessResponse(
+    int ClubId,
+    string ClubName,
+    bool IsManager,
+    bool IsTreasurer,
+    bool IsApprovedMember,
+    IReadOnlyCollection<int> ManagerUserIds);
 
 public sealed record ClubCreationApplicationResponse(
     int Id,

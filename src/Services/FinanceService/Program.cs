@@ -13,6 +13,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<FinanceDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddClubReportJwt(builder.Configuration);
+builder.Services.AddClubAccessClient(builder.Configuration);
 builder.Services.AddRabbitMqEventBus(builder.Configuration);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -34,11 +35,29 @@ app.UseAuthorization();
 app.MapHealthChecks("/health");
 app.MapGet("/", () => Results.Ok(new { service = "Finance Service", status = "running" }));
 
-var finance = app.MapGroup("/api/finance").WithTags("Finance").RequireAuthorization(AuthPolicies.ClubManagerOrTreasurer);
+var finance = app.MapGroup("/api/finance").WithTags("Finance").RequireAuthorization(AuthPolicies.AdminOrClubManagerOrMember);
 
-finance.MapGet("/proposals", async (int? clubId, string? status, FinanceDbContext db) =>
+finance.MapGet("/proposals", async (
+    int? clubId,
+    string? status,
+    FinanceDbContext db,
+    ClaimsPrincipal user,
+    HttpContext httpContext,
+    ClubAccessClient clubAccess,
+    CancellationToken cancellationToken) =>
 {
     var query = db.BudgetProposals.Include(x => x.Settlements).AsQueryable();
+    if (!IsAdministrator(user))
+    {
+        var allowedClubIds = await GetFinanceClubIdsAsync(clubAccess, httpContext, cancellationToken);
+        if (clubId.HasValue && !allowedClubIds.Contains(clubId.Value))
+        {
+            return Results.Forbid();
+        }
+
+        query = query.Where(x => allowedClubIds.Contains(x.ClubId));
+    }
+
     if (clubId.HasValue)
     {
         query = query.Where(x => x.ClubId == clubId);
@@ -53,10 +72,26 @@ finance.MapGet("/proposals", async (int? clubId, string? status, FinanceDbContex
     return Results.Ok(rows.Select(ToBudgetProposalResponse));
 });
 
-finance.MapGet("/proposals/{id:int}", async (int id, FinanceDbContext db) =>
+finance.MapGet("/proposals/{id:int}", async (
+    int id,
+    FinanceDbContext db,
+    ClaimsPrincipal user,
+    HttpContext httpContext,
+    ClubAccessClient clubAccess,
+    CancellationToken cancellationToken) =>
 {
-    var proposal = await db.BudgetProposals.Include(x => x.Settlements).FirstOrDefaultAsync(x => x.Id == id);
-    return proposal is null ? Results.NotFound() : Results.Ok(ToBudgetProposalResponse(proposal));
+    var proposal = await db.BudgetProposals.Include(x => x.Settlements).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+    if (proposal is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (!IsAdministrator(user) && !await CanManageFinanceClubAsync(proposal.ClubId, clubAccess, httpContext, cancellationToken))
+    {
+        return Results.Forbid();
+    }
+
+    return Results.Ok(ToBudgetProposalResponse(proposal));
 });
 
 finance.MapPost("/proposals", async (
@@ -64,6 +99,8 @@ finance.MapPost("/proposals", async (
     FinanceDbContext db,
     IEventBus eventBus,
     ClaimsPrincipal user,
+    HttpContext httpContext,
+    ClubAccessClient clubAccess,
     CancellationToken cancellationToken) =>
 {
     if (request.RequestedAmount <= 0)
@@ -71,10 +108,17 @@ finance.MapPost("/proposals", async (
         return Results.BadRequest(new { message = "Requested amount must be greater than zero." });
     }
 
+    var access = (await clubAccess.GetMyAccessAsync(httpContext.GetBearerToken(), cancellationToken))
+        .FirstOrDefault(x => x.ClubId == request.ClubId && x.CanManageFinance);
+    if (access is null)
+    {
+        return Results.Forbid();
+    }
+
     var proposal = new BudgetProposal
     {
         ClubId = request.ClubId,
-        ClubName = request.ClubName.Trim(),
+        ClubName = access.ClubName,
         ActivityId = request.ActivityId,
         Title = request.Title.Trim(),
         Description = request.Description.Trim(),
@@ -111,6 +155,16 @@ finance.MapPost("/proposals/{id:int}/approve", async (
         return Results.NotFound();
     }
 
+    if (proposal.Status != FinanceStatuses.Submitted)
+    {
+        return Results.BadRequest(new { message = "Only submitted budget proposals can be approved." });
+    }
+
+    if (proposal.ProposedByUserId == user.GetUserId())
+    {
+        return Results.BadRequest(new { message = "The proposal creator cannot approve their own proposal." });
+    }
+
     var approvedAmount = request.ApprovedAmount ?? proposal.RequestedAmount;
     if (approvedAmount <= 0)
     {
@@ -139,7 +193,8 @@ finance.MapPost("/proposals/{id:int}/approve", async (
         proposal.ClubId,
         proposal.ClubName,
         approvedAmount,
-        user.GetUserId()), EventRoutingKeys.BudgetApproved, cancellationToken);
+        user.GetUserId(),
+        proposal.ProposedByUserId), EventRoutingKeys.BudgetApproved, cancellationToken);
 
     return Results.Ok(ToBudgetProposalResponse(proposal));
 }).RequireAuthorization(AuthPolicies.AdminOnly);
@@ -156,6 +211,16 @@ finance.MapPost("/proposals/{id:int}/reject", async (
         return Results.NotFound();
     }
 
+    if (proposal.Status != FinanceStatuses.Submitted)
+    {
+        return Results.BadRequest(new { message = "Only submitted budget proposals can be rejected." });
+    }
+
+    if (proposal.ProposedByUserId == user.GetUserId())
+    {
+        return Results.BadRequest(new { message = "The proposal creator cannot reject their own proposal." });
+    }
+
     proposal.Status = FinanceStatuses.Rejected;
     proposal.ReviewedByUserId = user.GetUserId();
     proposal.ReviewedAtUtc = DateTimeOffset.UtcNow;
@@ -164,9 +229,21 @@ finance.MapPost("/proposals/{id:int}/reject", async (
     return Results.Ok(ToBudgetProposalResponse(proposal));
 }).RequireAuthorization(AuthPolicies.AdminOnly);
 
-finance.MapGet("/settlements", async (string? status, FinanceDbContext db) =>
+finance.MapGet("/settlements", async (
+    string? status,
+    FinanceDbContext db,
+    ClaimsPrincipal user,
+    HttpContext httpContext,
+    ClubAccessClient clubAccess,
+    CancellationToken cancellationToken) =>
 {
     var query = db.Settlements.Include(x => x.BudgetProposal).AsQueryable();
+    if (!IsAdministrator(user))
+    {
+        var allowedClubIds = await GetFinanceClubIdsAsync(clubAccess, httpContext, cancellationToken);
+        query = query.Where(x => allowedClubIds.Contains(x.BudgetProposal.ClubId));
+    }
+
     if (!string.IsNullOrWhiteSpace(status))
     {
         query = query.Where(x => x.Status == status);
@@ -179,12 +256,21 @@ finance.MapGet("/settlements", async (string? status, FinanceDbContext db) =>
 finance.MapPost("/proposals/{id:int}/settlements", async (
     int id,
     CreateSettlementRequest request,
-    FinanceDbContext db) =>
+    FinanceDbContext db,
+    ClaimsPrincipal user,
+    HttpContext httpContext,
+    ClubAccessClient clubAccess,
+    CancellationToken cancellationToken) =>
 {
-    var proposal = await db.BudgetProposals.Include(x => x.Settlements).FirstOrDefaultAsync(x => x.Id == id);
+    var proposal = await db.BudgetProposals.Include(x => x.Settlements).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     if (proposal is null)
     {
         return Results.NotFound();
+    }
+
+    if (!await CanManageFinanceClubAsync(proposal.ClubId, clubAccess, httpContext, cancellationToken))
+    {
+        return Results.Forbid();
     }
 
     if (proposal.Status != FinanceStatuses.Approved)
@@ -195,6 +281,11 @@ finance.MapPost("/proposals/{id:int}/settlements", async (
     if (request.TotalSpent <= 0)
     {
         return Results.BadRequest(new { message = "Total spent must be greater than zero." });
+    }
+
+    if (proposal.Settlements.Any(x => x.Status == FinanceStatuses.Submitted || x.Status == FinanceStatuses.Approved))
+    {
+        return Results.Conflict(new { message = "This proposal already has an active settlement." });
     }
 
     var settlement = new Settlement
@@ -228,6 +319,16 @@ finance.MapPost("/settlements/{id:int}/approve", async (
         return Results.NotFound();
     }
 
+    if (settlement.Status != FinanceStatuses.Submitted)
+    {
+        return Results.BadRequest(new { message = "Only submitted settlements can be approved." });
+    }
+
+    if (settlement.BudgetProposal.ProposedByUserId == user.GetUserId())
+    {
+        return Results.BadRequest(new { message = "The proposal creator cannot approve its settlement." });
+    }
+
     settlement.Status = FinanceStatuses.Approved;
     settlement.ReviewedByUserId = user.GetUserId();
     settlement.ReviewedAtUtc = DateTimeOffset.UtcNow;
@@ -245,9 +346,26 @@ finance.MapPost("/settlements/{id:int}/approve", async (
     return Results.Ok(ToSettlementResponse(settlement));
 }).RequireAuthorization(AuthPolicies.AdminOnly);
 
-finance.MapGet("/transactions", async (int? clubId, FinanceDbContext db) =>
+finance.MapGet("/transactions", async (
+    int? clubId,
+    FinanceDbContext db,
+    ClaimsPrincipal user,
+    HttpContext httpContext,
+    ClubAccessClient clubAccess,
+    CancellationToken cancellationToken) =>
 {
     var query = db.FinanceTransactions.AsQueryable();
+    if (!IsAdministrator(user))
+    {
+        var allowedClubIds = await GetFinanceClubIdsAsync(clubAccess, httpContext, cancellationToken);
+        if (clubId.HasValue && !allowedClubIds.Contains(clubId.Value))
+        {
+            return Results.Forbid();
+        }
+
+        query = query.Where(x => allowedClubIds.Contains(x.ClubId));
+    }
+
     if (clubId.HasValue)
     {
         query = query.Where(x => x.ClubId == clubId);
@@ -303,3 +421,27 @@ static FinanceTransactionResponse ToFinanceTransactionResponse(FinanceTransactio
     transaction.Description,
     transaction.ReferenceId,
     transaction.TransactionDateUtc);
+
+static bool IsAdministrator(ClaimsPrincipal user) =>
+    user.IsInRole(AuthRoles.Admin)
+    || user.IsInRole(AuthRoles.SystemAdmin)
+    || user.IsInRole(AuthRoles.StudentAffairsAdmin);
+
+static async Task<HashSet<int>> GetFinanceClubIdsAsync(
+    ClubAccessClient clubAccess,
+    HttpContext httpContext,
+    CancellationToken cancellationToken)
+{
+    var access = await clubAccess.GetMyAccessAsync(httpContext.GetBearerToken(), cancellationToken);
+    return access.Where(x => x.CanManageFinance).Select(x => x.ClubId).ToHashSet();
+}
+
+static async Task<bool> CanManageFinanceClubAsync(
+    int clubId,
+    ClubAccessClient clubAccess,
+    HttpContext httpContext,
+    CancellationToken cancellationToken)
+{
+    var access = await clubAccess.GetMyAccessAsync(httpContext.GetBearerToken(), cancellationToken);
+    return access.Any(x => x.ClubId == clubId && x.CanManageFinance);
+}

@@ -19,6 +19,7 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<ExportDbContext>(options => options.UseSqlServer(connectionString));
 builder.Services.Configure<ExportOptions>(builder.Configuration.GetSection(ExportOptions.SectionName));
 builder.Services.AddClubReportJwt(builder.Configuration);
+builder.Services.AddClubAccessClient(builder.Configuration);
 builder.Services.AddRabbitMqEventBus(builder.Configuration);
 builder.Services.AddHangfire(config => config
     .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
@@ -55,13 +56,28 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 app.MapHealthChecks("/health");
 app.MapGet("/", () => Results.Ok(new { service = "Export Service", status = "running" }));
 
-var exports = app.MapGroup("/api/exports").WithTags("Exports").RequireAuthorization(AuthPolicies.AdminOrClubManager);
+var exports = app.MapGroup("/api/exports").WithTags("Exports").RequireAuthorization(AuthPolicies.AdminOrClubManagerOrMember);
 
-exports.MapGet("/", async (string? status, int page, int pageSize, ExportDbContext db) =>
+exports.MapGet("/", async (
+    string? status,
+    int page,
+    int pageSize,
+    ExportDbContext db,
+    ClaimsPrincipal user,
+    HttpContext httpContext,
+    ClubAccessClient clubAccess,
+    CancellationToken cancellationToken) =>
 {
     page = Math.Max(page, 1);
     pageSize = pageSize is <= 0 or > 100 ? 20 : pageSize;
     var query = db.ExportRequests.Include(x => x.File).AsQueryable();
+    if (!IsAdministrator(user))
+    {
+        var managedClubIds = await GetManagedClubIdsAsync(clubAccess, httpContext, cancellationToken);
+        var userId = user.GetUserId();
+        query = query.Where(x => x.RequestedByUserId == userId && x.ClubId.HasValue && managedClubIds.Contains(x.ClubId.Value));
+    }
+
     if (!string.IsNullOrWhiteSpace(status))
     {
         query = query.Where(x => x.Status == status);
@@ -76,10 +92,26 @@ exports.MapGet("/", async (string? status, int page, int pageSize, ExportDbConte
     return Results.Ok(new { total, page, pageSize, items = items.Select(ToResponse) });
 });
 
-exports.MapGet("/{id:int}", async (int id, ExportDbContext db) =>
+exports.MapGet("/{id:int}", async (
+    int id,
+    ExportDbContext db,
+    ClaimsPrincipal user,
+    HttpContext httpContext,
+    ClubAccessClient clubAccess,
+    CancellationToken cancellationToken) =>
 {
-    var request = await db.ExportRequests.Include(x => x.File).FirstOrDefaultAsync(x => x.Id == id);
-    return request is null ? Results.NotFound() : Results.Ok(ToResponse(request));
+    var request = await db.ExportRequests.Include(x => x.File).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+    if (request is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (!await CanAccessExportAsync(request, user, clubAccess, httpContext, cancellationToken))
+    {
+        return Results.Forbid();
+    }
+
+    return Results.Ok(ToResponse(request));
 });
 
 exports.MapPost("/", async (
@@ -87,13 +119,26 @@ exports.MapPost("/", async (
     ExportDbContext db,
     IEventBus eventBus,
     ClaimsPrincipal user,
+    HttpContext httpContext,
+    ClubAccessClient clubAccess,
     CancellationToken cancellationToken) =>
 {
+    var isAdministrator = IsAdministrator(user);
+    if (!isAdministrator)
+    {
+        if (!request.ClubId.HasValue || !await CanManageClubAsync(request.ClubId.Value, clubAccess, httpContext, cancellationToken))
+        {
+            return Results.Forbid();
+        }
+    }
+
     var normalizedType = request.ExportType.Equals("EXCEL", StringComparison.OrdinalIgnoreCase) ? "EXCEL" : "PDF";
     var export = new ExportRequest
     {
         ExportType = normalizedType,
-        Scope = string.IsNullOrWhiteSpace(request.Scope) ? "Individual" : request.Scope.Trim(),
+        Scope = isAdministrator
+            ? (string.IsNullOrWhiteSpace(request.Scope) ? "Consolidated" : request.Scope.Trim())
+            : "Club",
         Period = request.Period,
         ClubId = request.ClubId,
         RequestedByUserId = user.GetUserId(),
@@ -115,12 +160,23 @@ exports.MapPost("/", async (
     return Results.Accepted($"/api/exports/{export.Id}", ToResponse(export));
 });
 
-exports.MapGet("/{id:int}/download", async (int id, ExportDbContext db) =>
+exports.MapGet("/{id:int}/download", async (
+    int id,
+    ExportDbContext db,
+    ClaimsPrincipal user,
+    HttpContext httpContext,
+    ClubAccessClient clubAccess,
+    CancellationToken cancellationToken) =>
 {
-    var file = await db.ExportFiles.Include(x => x.ExportRequest).FirstOrDefaultAsync(x => x.ExportRequestId == id);
+    var file = await db.ExportFiles.Include(x => x.ExportRequest).FirstOrDefaultAsync(x => x.ExportRequestId == id, cancellationToken);
     if (file is null || !file.IsAvailable || !File.Exists(file.FilePath))
     {
         return Results.NotFound(new { message = "Export file is not available." });
+    }
+
+    if (!await CanAccessExportAsync(file.ExportRequest, user, clubAccess, httpContext, cancellationToken))
+    {
+        return Results.Forbid();
     }
 
     return Results.File(file.FilePath, file.ContentType, file.FileName);
@@ -201,3 +257,44 @@ static ExportResponse ToResponse(ExportRequest request) => new(
         request.File.ExpiresAtUtc,
         request.File.Checksum,
         request.File.IsAvailable));
+
+static bool IsAdministrator(ClaimsPrincipal user) =>
+    user.IsInRole(AuthRoles.Admin)
+    || user.IsInRole(AuthRoles.SystemAdmin)
+    || user.IsInRole(AuthRoles.StudentAffairsAdmin);
+
+static async Task<HashSet<int>> GetManagedClubIdsAsync(
+    ClubAccessClient clubAccess,
+    HttpContext httpContext,
+    CancellationToken cancellationToken)
+{
+    var access = await clubAccess.GetMyAccessAsync(httpContext.GetBearerToken(), cancellationToken);
+    return access.Where(x => x.CanManage).Select(x => x.ClubId).ToHashSet();
+}
+
+static async Task<bool> CanManageClubAsync(
+    int clubId,
+    ClubAccessClient clubAccess,
+    HttpContext httpContext,
+    CancellationToken cancellationToken)
+{
+    var access = await clubAccess.GetMyAccessAsync(httpContext.GetBearerToken(), cancellationToken);
+    return access.Any(x => x.ClubId == clubId && x.CanManage);
+}
+
+static async Task<bool> CanAccessExportAsync(
+    ExportRequest request,
+    ClaimsPrincipal user,
+    ClubAccessClient clubAccess,
+    HttpContext httpContext,
+    CancellationToken cancellationToken)
+{
+    if (IsAdministrator(user))
+    {
+        return true;
+    }
+
+    return request.RequestedByUserId == user.GetUserId()
+        && request.ClubId.HasValue
+        && await CanManageClubAsync(request.ClubId.Value, clubAccess, httpContext, cancellationToken);
+}

@@ -6,7 +6,9 @@ using ClubService.Contracts;
 using ClubService.Data;
 using ClubService.Models;
 using Microsoft.EntityFrameworkCore;
+using System.Net.Mail;
 using System.Security.Claims;
+using System.Text.RegularExpressions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -36,7 +38,7 @@ app.MapGet("/", () => Results.Ok(new { service = "Club Service", status = "runni
 
 var clubs = app.MapGroup("/api/clubs").WithTags("Clubs").RequireAuthorization(AuthPolicies.AdminOrClubManagerOrMember);
 
-clubs.MapGet("/", async (string? search, bool? active, ClubDbContext db) =>
+clubs.MapGet("/", async (string? search, bool? active, ClubDbContext db, ClaimsPrincipal user) =>
 {
     var query = db.Clubs
         .Include(x => x.ManagerAssignments)
@@ -53,7 +55,17 @@ clubs.MapGet("/", async (string? search, bool? active, ClubDbContext db) =>
     }
 
     var result = await query.OrderBy(x => x.Name).ToListAsync();
-    return Results.Ok(result.Select(ToResponse));
+    if (IsAdmin(user))
+    {
+        return Results.Ok(result.Select(ToResponse));
+    }
+
+    var userId = user.GetUserId();
+    var managedClubIds = result
+        .Where(x => x.ManagerAssignments.Any(m => m.ManagerUserId == userId && m.IsActive))
+        .Select(x => x.Id)
+        .ToHashSet();
+    return Results.Ok(result.Select(club => managedClubIds.Contains(club.Id) ? ToResponse(club) : ToDirectoryResponse(club)));
 });
 
 clubs.MapGet("/me/managed", async (ClaimsPrincipal user, ClubDbContext db) =>
@@ -79,6 +91,46 @@ clubs.MapGet("/me/memberships", async (ClaimsPrincipal user, ClubDbContext db) =
     return Results.Ok(memberships.Select(ToMembershipResponse));
 });
 
+clubs.MapGet("/me/access", async (ClaimsPrincipal user, ClubDbContext db) =>
+{
+    var userId = user.GetUserId();
+    var managedClubs = await db.ClubManagerAssignments
+        .AsNoTracking()
+        .Where(x => x.ManagerUserId == userId && x.IsActive)
+        .Select(x => new { x.ClubId, x.Club.Name })
+        .ToListAsync();
+    var memberships = await db.ClubMemberships
+        .AsNoTracking()
+        .Where(x => x.UserId == userId && x.Status == ClubMembershipStatuses.Approved)
+        .Select(x => new { x.ClubId, x.Club.Name, x.Role })
+        .ToListAsync();
+
+    var clubIds = managedClubs.Select(x => x.ClubId)
+        .Concat(memberships.Select(x => x.ClubId))
+        .Distinct()
+        .OrderBy(x => x)
+        .ToArray();
+    var activeManagers = await db.ClubManagerAssignments
+        .AsNoTracking()
+        .Where(x => clubIds.Contains(x.ClubId) && x.IsActive)
+        .Select(x => new { x.ClubId, x.ManagerUserId })
+        .ToListAsync();
+    var access = clubIds.Select(clubId =>
+    {
+        var managed = managedClubs.FirstOrDefault(x => x.ClubId == clubId);
+        var membership = memberships.FirstOrDefault(x => x.ClubId == clubId);
+        return new ClubAccessResponse(
+            clubId,
+            managed?.Name ?? membership?.Name ?? string.Empty,
+            managed is not null,
+            string.Equals(membership?.Role, ClubMemberRoles.Treasurer, StringComparison.OrdinalIgnoreCase),
+            membership is not null,
+            activeManagers.Where(x => x.ClubId == clubId).Select(x => x.ManagerUserId).Distinct().ToArray());
+    });
+
+    return Results.Ok(access);
+});
+
 clubs.MapGet("/applications", async (ClubDbContext db) =>
 {
     var applications = await db.ClubCreationApplications
@@ -95,13 +147,10 @@ clubs.MapPost("/applications", async (
     var userId = user.GetUserId();
     var code = request.Code.Trim().ToUpperInvariant();
 
-    if (string.IsNullOrWhiteSpace(code)
-        || string.IsNullOrWhiteSpace(request.Name)
-        || string.IsNullOrWhiteSpace(request.Description)
-        || string.IsNullOrWhiteSpace(request.Purpose)
-        || string.IsNullOrWhiteSpace(request.Reason))
+    var validationError = ValidateClubApplication(request, code);
+    if (validationError is not null)
     {
-        return Results.BadRequest(new { message = "Club code, name, description, purpose, and reason are required." });
+        return Results.BadRequest(new { message = validationError });
     }
 
     if (await db.ClubManagerAssignments.AnyAsync(x => x.ManagerUserId == userId && x.IsActive))
@@ -145,6 +194,11 @@ clubs.MapPost("/applications/{applicationId:int}/approve", async (
     IEventBus eventBus,
     CancellationToken cancellationToken) =>
 {
+    if (request.Note?.Trim().Length > 1000)
+    {
+        return Results.BadRequest(new { message = "Ghi chú xét duyệt không được vượt quá 1.000 ký tự." });
+    }
+
     var application = await db.ClubCreationApplications.FirstOrDefaultAsync(x => x.Id == applicationId, cancellationToken);
     if (application is null)
     {
@@ -216,6 +270,11 @@ clubs.MapPost("/applications/{applicationId:int}/reject", async (
     ClaimsPrincipal user,
     ClubDbContext db) =>
 {
+    if (request.Note?.Trim().Length > 1000)
+    {
+        return Results.BadRequest(new { message = "Ghi chú xét duyệt không được vượt quá 1.000 ký tự." });
+    }
+
     var application = await db.ClubCreationApplications.FirstOrDefaultAsync(x => x.Id == applicationId);
     if (application is null)
     {
@@ -235,17 +294,29 @@ clubs.MapPost("/applications/{applicationId:int}/reject", async (
     return Results.Ok(ToApplicationResponse(application));
 }).RequireAuthorization(AuthPolicies.AdminOnly);
 
-clubs.MapGet("/{id:int}", async (int id, ClubDbContext db) =>
+clubs.MapGet("/{id:int}", async (int id, ClubDbContext db, ClaimsPrincipal user) =>
 {
     var club = await db.Clubs
         .Include(x => x.ManagerAssignments)
         .Include(x => x.Memberships)
         .FirstOrDefaultAsync(x => x.Id == id);
-    return club is null ? Results.NotFound() : Results.Ok(ToResponse(club));
+    if (club is null)
+    {
+        return Results.NotFound();
+    }
+
+    var canViewPrivateDetails = IsAdmin(user)
+        || club.ManagerAssignments.Any(x => x.ManagerUserId == user.GetUserId() && x.IsActive);
+    return Results.Ok(canViewPrivateDetails ? ToResponse(club) : ToDirectoryResponse(club));
 });
 
-clubs.MapGet("/manager/{managerUserId:int}", async (int managerUserId, ClubDbContext db) =>
+clubs.MapGet("/manager/{managerUserId:int}", async (int managerUserId, ClubDbContext db, ClaimsPrincipal user) =>
 {
+    if (!IsAdmin(user) && managerUserId != user.GetUserId())
+    {
+        return Results.Forbid();
+    }
+
     var clubsForManager = await db.Clubs
         .Include(x => x.ManagerAssignments)
         .Include(x => x.Memberships)
@@ -402,9 +473,10 @@ clubs.MapPost("/{id:int}/join", async (
         return Results.Conflict(new { message = "Club owner is already attached to this club." });
     }
 
-    if (string.IsNullOrWhiteSpace(request.PersonalInfo) || string.IsNullOrWhiteSpace(request.Goals) || string.IsNullOrWhiteSpace(request.Reason))
+    var validationError = ValidateJoinRequest(request);
+    if (validationError is not null)
     {
-        return Results.BadRequest(new { message = "Personal info, goals, and reason are required to join a club." });
+        return Results.BadRequest(new { message = validationError });
     }
 
     var existing = club.Memberships.FirstOrDefault(x => x.UserId == userId);
@@ -418,6 +490,7 @@ clubs.MapPost("/{id:int}/join", async (
             existing.PersonalInfo = request.PersonalInfo.Trim();
             existing.Goals = request.Goals.Trim();
             existing.Reason = request.Reason.Trim();
+            existing.ReviewNote = null;
             existing.RequestedAtUtc = DateTimeOffset.UtcNow;
             existing.ReviewedAtUtc = null;
             existing.ReviewedByUserId = null;
@@ -469,6 +542,11 @@ clubs.MapPost("/memberships/{membershipId:int}/approve", async (
     ClaimsPrincipal user,
     ClubDbContext db) =>
 {
+    if (request.Note?.Trim().Length > 1000)
+    {
+        return Results.BadRequest(new { message = "Ghi chú xét duyệt không được vượt quá 1.000 ký tự." });
+    }
+
     var membership = await db.ClubMemberships
         .Include(x => x.Club)
         .FirstOrDefaultAsync(x => x.Id == membershipId);
@@ -482,8 +560,14 @@ clubs.MapPost("/memberships/{membershipId:int}/approve", async (
         return Results.Forbid();
     }
 
+    if (membership.Status != ClubMembershipStatuses.Pending)
+    {
+        return Results.Conflict(new { message = "Only pending membership requests can be approved." });
+    }
+
     membership.Status = ClubMembershipStatuses.Approved;
     membership.Role = ClubMemberRoles.Member;
+    membership.ReviewNote = request.Note?.Trim();
     membership.ReviewedAtUtc = DateTimeOffset.UtcNow;
     membership.ReviewedByUserId = user.GetUserId();
     await db.SaveChangesAsync();
@@ -496,6 +580,11 @@ clubs.MapPost("/memberships/{membershipId:int}/reject", async (
     ClaimsPrincipal user,
     ClubDbContext db) =>
 {
+    if (request.Note?.Trim().Length > 1000)
+    {
+        return Results.BadRequest(new { message = "Ghi chú xét duyệt không được vượt quá 1.000 ký tự." });
+    }
+
     var membership = await db.ClubMemberships
         .Include(x => x.Club)
         .FirstOrDefaultAsync(x => x.Id == membershipId);
@@ -509,8 +598,14 @@ clubs.MapPost("/memberships/{membershipId:int}/reject", async (
         return Results.Forbid();
     }
 
+    if (membership.Status != ClubMembershipStatuses.Pending)
+    {
+        return Results.Conflict(new { message = "Only pending membership requests can be rejected." });
+    }
+
     membership.Status = ClubMembershipStatuses.Rejected;
     membership.Role = ClubMemberRoles.Member;
+    membership.ReviewNote = request.Note?.Trim();
     membership.ReviewedAtUtc = DateTimeOffset.UtcNow;
     membership.ReviewedByUserId = user.GetUserId();
     await db.SaveChangesAsync();
@@ -629,6 +724,23 @@ static ClubResponse ToResponse(Club club)
         members);
 }
 
+static ClubResponse ToDirectoryResponse(Club club)
+{
+    var response = ToResponse(club);
+    var visibleMembers = response.Members
+        .Where(x => x.Status == ClubMembershipStatuses.Approved)
+        .Select(x => x with
+        {
+            RequestMessage = null,
+            PersonalInfo = string.Empty,
+            Goals = string.Empty,
+            Reason = string.Empty,
+            ReviewNote = null
+        })
+        .ToArray();
+    return response with { Members = visibleMembers };
+}
+
 static ClubMembershipResponse ToMembershipResponse(ClubMembership membership)
 {
     return ToMembershipResponseWithClub(membership, membership.Club);
@@ -648,6 +760,7 @@ static ClubMembershipResponse ToMembershipResponseWithClub(ClubMembership member
         membership.PersonalInfo,
         membership.Goals,
         membership.Reason,
+        membership.ReviewNote,
         membership.RequestedAtUtc,
         membership.ReviewedAtUtc,
         membership.ReviewedByUserId);
@@ -684,4 +797,64 @@ static bool IsAdmin(ClaimsPrincipal user)
 static Task<bool> UserOwnsClubAsync(ClubDbContext db, int clubId, int userId)
 {
     return db.ClubManagerAssignments.AnyAsync(x => x.ClubId == clubId && x.ManagerUserId == userId && x.IsActive);
+}
+
+static string? ValidateClubApplication(CreateClubApplicationRequest request, string normalizedCode)
+{
+    if (string.IsNullOrWhiteSpace(normalizedCode)
+        || string.IsNullOrWhiteSpace(request.Name)
+        || string.IsNullOrWhiteSpace(request.Description)
+        || string.IsNullOrWhiteSpace(request.Purpose)
+        || string.IsNullOrWhiteSpace(request.Reason)
+        || string.IsNullOrWhiteSpace(request.ContactEmail)
+        || string.IsNullOrWhiteSpace(request.ContactPhone))
+    {
+        return "Vui lòng nhập đầy đủ mã, tên, mô tả, mục đích, lý do và thông tin liên hệ của câu lạc bộ.";
+    }
+
+    if (!Regex.IsMatch(normalizedCode, "^[A-Z0-9_-]{2,20}$"))
+    {
+        return "Mã câu lạc bộ chỉ gồm 2-20 chữ cái, chữ số, dấu gạch ngang hoặc gạch dưới.";
+    }
+
+    if (!MailAddress.TryCreate(request.ContactEmail.Trim(), out var email)
+        || !string.Equals(email.Address, request.ContactEmail.Trim(), StringComparison.OrdinalIgnoreCase))
+    {
+        return "Email liên hệ không hợp lệ.";
+    }
+
+    if (!Regex.IsMatch(request.ContactPhone.Trim(), "^\\+?[0-9]{9,15}$"))
+    {
+        return "Số điện thoại phải có từ 9 đến 15 chữ số.";
+    }
+
+    if (request.Name.Trim().Length > 150
+        || request.Description.Trim().Length > 1000
+        || request.Purpose.Trim().Length > 1000
+        || request.Reason.Trim().Length > 1000)
+    {
+        return "Nội dung đơn đăng ký vượt quá độ dài cho phép.";
+    }
+
+    return null;
+}
+
+static string? ValidateJoinRequest(JoinClubRequest request)
+{
+    if (string.IsNullOrWhiteSpace(request.PersonalInfo)
+        || string.IsNullOrWhiteSpace(request.Goals)
+        || string.IsNullOrWhiteSpace(request.Reason))
+    {
+        return "Vui lòng nhập thông tin cá nhân, mục tiêu và lý do tham gia câu lạc bộ.";
+    }
+
+    if ((request.Message?.Trim().Length ?? 0) > 1000
+        || request.PersonalInfo.Trim().Length > 1000
+        || request.Goals.Trim().Length > 1000
+        || request.Reason.Trim().Length > 1000)
+    {
+        return "Nội dung đơn tham gia vượt quá độ dài cho phép.";
+    }
+
+    return null;
 }

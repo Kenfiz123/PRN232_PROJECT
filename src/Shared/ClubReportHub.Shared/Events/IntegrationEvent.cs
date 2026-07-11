@@ -35,7 +35,9 @@ public sealed record ReportSubmittedEvent(
     int ClubId,
     string ClubName,
     string Period,
-    int SubmittedByUserId)
+    int SubmittedByUserId,
+    string Status,
+    int? RecipientUserId)
     : IntegrationEvent(EventId, OccurredAtUtc);
 
 public sealed record ReportApprovedEvent(
@@ -45,7 +47,8 @@ public sealed record ReportApprovedEvent(
     int ClubId,
     string ClubName,
     string Period,
-    int ApprovedByUserId)
+    int ApprovedByUserId,
+    int RecipientUserId)
     : IntegrationEvent(EventId, OccurredAtUtc);
 
 public sealed record ReportRejectedEvent(
@@ -56,6 +59,7 @@ public sealed record ReportRejectedEvent(
     string ClubName,
     string Period,
     int RejectedByUserId,
+    int RecipientUserId,
     string Feedback)
     : IntegrationEvent(EventId, OccurredAtUtc);
 
@@ -85,7 +89,8 @@ public sealed record BudgetApprovedEvent(
     int ClubId,
     string ClubName,
     decimal ApprovedAmount,
-    int ApprovedByUserId)
+    int ApprovedByUserId,
+    int RecipientUserId)
     : IntegrationEvent(EventId, OccurredAtUtc);
 
 public sealed record SettlementOverdueEvent(

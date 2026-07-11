@@ -1427,6 +1427,28 @@ nav {
   line-height: 1.55;
 }
 
+.report-card .report-feedback {
+  padding: 10px 12px;
+  border-left: 3px solid #f59e0b;
+  background: #fff8e8;
+  color: #7c4a03;
+}
+
+.review-note-field {
+  display: grid;
+  gap: 6px;
+  color: #475467;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.membership-review-note {
+  width: 100%;
+  color: #9a3412;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .report-actions {
   padding-top: 2px;
 }
@@ -2261,15 +2283,24 @@ dd {
 
 @media (max-width: 700px) {
   .workspace {
+    width: 100%;
+    min-width: 0;
     padding: 18px;
   }
 
   .topbar,
   .topbar-actions,
+  .page-title,
+  .view-frame,
+  .surface,
+  .panel,
   .surface-head,
   .panel-head {
     align-items: stretch;
     flex-direction: column;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .topbar h1 {
@@ -2277,7 +2308,81 @@ dd {
   }
 
   .user-chip {
+    width: 100%;
+    min-width: 0;
     max-width: 100%;
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+
+  .topbar-actions,
+  .topbar-actions > *,
+  .workspace-label,
+  .role-pill {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .list-grid,
+  .item-card,
+  .club-card,
+  .club-card-head,
+  .join-request-form,
+  dl,
+  dl div,
+  dd {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .club-card-head {
+    flex-wrap: wrap;
+  }
+
+  .member-panel,
+  .member-list,
+  .member-row,
+  .member-panel-head,
+  .member-request-copy,
+  .member-request-actions {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .member-panel-head,
+  .member-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .member-row span:first-child,
+  .member-row small {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .member-row button {
+    width: 100%;
+  }
+
+  dd {
+    overflow-wrap: anywhere;
+  }
+
+  .role-pill {
+    height: auto;
+    min-height: 28px;
+    padding-block: 5px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .report-actions button,
+  .icon-upload {
+    min-width: 44px;
+    min-height: 44px;
   }
 
   .hero-copy {

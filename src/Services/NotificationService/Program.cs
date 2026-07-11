@@ -5,6 +5,7 @@ using NotificationService.Consumers;
 using NotificationService.Contracts;
 using NotificationService.Data;
 using NotificationService.Models;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -40,20 +41,13 @@ notifications.MapGet("/", async (
     int? recipientUserId,
     string? recipientRole,
     bool? unreadOnly,
-    NotificationDbContext db) =>
+    NotificationDbContext db,
+    ClaimsPrincipal user) =>
 {
-    var query = db.Notifications.AsQueryable();
-    if (recipientUserId.HasValue && !string.IsNullOrWhiteSpace(recipientRole))
+    var query = ScopeNotificationQuery(db.Notifications.AsQueryable(), user, recipientUserId, recipientRole);
+    if (query is null)
     {
-        query = query.Where(x => x.RecipientUserId == recipientUserId || x.RecipientRole == recipientRole);
-    }
-    else if (recipientUserId.HasValue)
-    {
-        query = query.Where(x => x.RecipientUserId == recipientUserId);
-    }
-    else if (!string.IsNullOrWhiteSpace(recipientRole))
-    {
-        query = query.Where(x => x.RecipientRole == recipientRole);
+        return Results.Forbid();
     }
 
     if (unreadOnly == true)
@@ -65,7 +59,7 @@ notifications.MapGet("/", async (
     return Results.Ok(rows.Select(ToResponse));
 });
 
-notifications.MapPut("/{id:int}/read", async (int id, NotificationDbContext db) =>
+notifications.MapPut("/{id:int}/read", async (int id, NotificationDbContext db, ClaimsPrincipal user) =>
 {
     var notification = await db.Notifications.FindAsync(id);
     if (notification is null)
@@ -73,22 +67,22 @@ notifications.MapPut("/{id:int}/read", async (int id, NotificationDbContext db) 
         return Results.NotFound();
     }
 
+    if (!CanAccessNotification(user, notification))
+    {
+        return Results.Forbid();
+    }
+
     notification.IsRead = true;
     await db.SaveChangesAsync();
     return Results.NoContent();
 });
 
-notifications.MapPut("/read-all", async (int? recipientUserId, string? recipientRole, NotificationDbContext db) =>
+notifications.MapPut("/read-all", async (int? recipientUserId, string? recipientRole, NotificationDbContext db, ClaimsPrincipal user) =>
 {
-    var query = db.Notifications.Where(x => !x.IsRead);
-    if (recipientUserId.HasValue)
+    var query = ScopeNotificationQuery(db.Notifications.Where(x => !x.IsRead), user, recipientUserId, recipientRole);
+    if (query is null)
     {
-        query = query.Where(x => x.RecipientUserId == recipientUserId);
-    }
-
-    if (!string.IsNullOrWhiteSpace(recipientRole))
-    {
-        query = query.Where(x => x.RecipientRole == recipientRole);
+        return Results.Forbid();
     }
 
     await query.ExecuteUpdateAsync(setters => setters.SetProperty(x => x.IsRead, true));
@@ -114,3 +108,87 @@ static NotificationResponse ToResponse(Notification notification) => new(
     notification.Message,
     notification.IsRead,
     notification.CreatedAtUtc);
+
+static IQueryable<Notification>? ScopeNotificationQuery(
+    IQueryable<Notification> query,
+    ClaimsPrincipal user,
+    int? recipientUserId,
+    string? recipientRole)
+{
+    var normalizedRole = NormalizeRole(recipientRole);
+    if (IsNotificationAdmin(user))
+    {
+        return ApplyRequestedRecipientFilters(query, recipientUserId, normalizedRole);
+    }
+
+    var userId = user.GetUserId();
+    var roles = GetRecipientRoles(user);
+    if (recipientUserId.HasValue && recipientUserId.Value != userId)
+    {
+        return null;
+    }
+
+    if (normalizedRole is not null && !roles.Contains(normalizedRole))
+    {
+        return null;
+    }
+
+    query = query.Where(x => x.RecipientUserId == userId || (x.RecipientRole != null && roles.Contains(x.RecipientRole)));
+    return ApplyRequestedRecipientFilters(query, recipientUserId, normalizedRole);
+}
+
+static IQueryable<Notification> ApplyRequestedRecipientFilters(
+    IQueryable<Notification> query,
+    int? recipientUserId,
+    string? recipientRole)
+{
+    if (recipientUserId.HasValue && recipientRole is not null)
+    {
+        return query.Where(x => x.RecipientUserId == recipientUserId || x.RecipientRole == recipientRole);
+    }
+
+    if (recipientUserId.HasValue)
+    {
+        return query.Where(x => x.RecipientUserId == recipientUserId);
+    }
+
+    if (recipientRole is not null)
+    {
+        return query.Where(x => x.RecipientRole == recipientRole);
+    }
+
+    return query;
+}
+
+static bool CanAccessNotification(ClaimsPrincipal user, Notification notification)
+{
+    if (IsNotificationAdmin(user))
+    {
+        return true;
+    }
+
+    var userId = user.GetUserId();
+    var roles = GetRecipientRoles(user);
+    return notification.RecipientUserId == userId
+        || (notification.RecipientRole is not null && roles.Contains(notification.RecipientRole));
+}
+
+static bool IsNotificationAdmin(ClaimsPrincipal user)
+{
+    return user.IsInRole(AuthRoles.Admin) || user.IsInRole(AuthRoles.SystemAdmin);
+}
+
+static string[] GetRecipientRoles(ClaimsPrincipal user)
+{
+    return user.Claims
+        .Where(x => x.Type == ClaimTypes.Role || x.Type == "role")
+        .Select(x => x.Value)
+        .Where(x => !string.IsNullOrWhiteSpace(x))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+}
+
+static string? NormalizeRole(string? role)
+{
+    return string.IsNullOrWhiteSpace(role) ? null : role.Trim();
+}

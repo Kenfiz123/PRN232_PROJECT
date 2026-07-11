@@ -74,6 +74,7 @@ services:
       ConnectionStrings__DefaultConnection: Server=sqlserver,1433;Database=ClubReportHub_Activity;User Id=sa;Password=${SQL_PASSWORD:-ClubReportHub!2026};TrustServerCertificate=True
       Jwt__SigningKey: ${JWT_SIGNING_KEY:-dev-only-change-this-signing-key-with-at-least-32-characters}
       RabbitMQ__HostName: rabbitmq
+      Services__ClubService__BaseUrl: http://club-service:8080
     depends_on:
       sqlserver:
         condition: service_healthy
@@ -91,6 +92,7 @@ services:
       ConnectionStrings__DefaultConnection: Server=sqlserver,1433;Database=ClubReportHub_Report;User Id=sa;Password=${SQL_PASSWORD:-ClubReportHub!2026};TrustServerCertificate=True
       Jwt__SigningKey: ${JWT_SIGNING_KEY:-dev-only-change-this-signing-key-with-at-least-32-characters}
       RabbitMQ__HostName: rabbitmq
+      Services__ClubService__BaseUrl: http://club-service:8080
     depends_on:
       sqlserver:
         condition: service_healthy
@@ -108,6 +110,7 @@ services:
       ConnectionStrings__DefaultConnection: Server=sqlserver,1433;Database=ClubReportHub_Finance;User Id=sa;Password=${SQL_PASSWORD:-ClubReportHub!2026};TrustServerCertificate=True
       Jwt__SigningKey: ${JWT_SIGNING_KEY:-dev-only-change-this-signing-key-with-at-least-32-characters}
       RabbitMQ__HostName: rabbitmq
+      Services__ClubService__BaseUrl: http://club-service:8080
     depends_on:
       sqlserver:
         condition: service_healthy
@@ -126,6 +129,7 @@ services:
       Jwt__SigningKey: ${JWT_SIGNING_KEY:-dev-only-change-this-signing-key-with-at-least-32-characters}
       RabbitMQ__HostName: rabbitmq
       Exports__StoragePath: /app/exports
+      Services__ClubService__BaseUrl: http://club-service:8080
     volumes:
       - export-files:/app/exports
     depends_on:

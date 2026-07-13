@@ -379,7 +379,7 @@ clubs.MapPut("/{id:int}", async (int id, UpdateClubRequest request, ClubDbContex
     return Results.Ok(ToResponse(club));
 }).RequireAuthorization(AuthPolicies.AdminOnly);
 
-clubs.MapDelete("/{id:int}", async (int id, ClubDbContext db) =>
+clubs.MapDelete("/{id:int}", async (int id, ClubDbContext db, ClaimsPrincipal user) =>
 {
     var club = await db.Clubs.FindAsync(id);
     if (club is null)
@@ -387,10 +387,15 @@ clubs.MapDelete("/{id:int}", async (int id, ClubDbContext db) =>
         return Results.NotFound();
     }
 
-    club.IsActive = false;
+    if (!IsAdmin(user) && !await UserOwnsClubAsync(db, id, user.GetUserId()))
+    {
+        return Results.Forbid();
+    }
+
+    db.Clubs.Remove(club);
     await db.SaveChangesAsync();
     return Results.NoContent();
-}).RequireAuthorization(AuthPolicies.AdminOnly);
+});
 
 clubs.MapPost("/{id:int}/managers", async (int id, AssignManagerRequest request, ClubDbContext db) =>
 {

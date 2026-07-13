@@ -866,7 +866,6 @@ export default function App() {
   }
 
   async function deleteClub(id: number) {
-    if (!isAdmin) return;
     await runAction(async () => {
       await api.deleteClub(id);
     });
@@ -2223,6 +2222,18 @@ function ClubCard({
             disabled={busy}
           >
             Xóa
+          </button>
+        </div>
+      )}
+      {!isAdmin && isOwner && (
+        <div className="card-actions">
+          <button
+            className="danger-action"
+            type="button"
+            onClick={() => window.confirm(`XÃ³a cÃ¢u láº¡c bá»™ ${club.name}? Thao tÃ¡c nÃ y khÃ´ng thá»ƒ hoÃ n tÃ¡c.`) && deleteClub(club.id)}
+            disabled={busy}
+          >
+            XÃ³a cÃ¢u láº¡c bá»™
           </button>
         </div>
       )}

@@ -2230,10 +2230,10 @@ function ClubCard({
           <button
             className="danger-action"
             type="button"
-            onClick={() => window.confirm(`XÃ³a cÃ¢u láº¡c bá»™ ${club.name}? Thao tÃ¡c nÃ y khÃ´ng thá»ƒ hoÃ n tÃ¡c.`) && deleteClub(club.id)}
+            onClick={() => window.confirm(`Xóa câu lạc bộ ${club.name}? Thao tác này không thể hoàn tác.`) && deleteClub(club.id)}
             disabled={busy}
           >
-            XÃ³a cÃ¢u láº¡c bá»™
+            Xóa câu lạc bộ
           </button>
         </div>
       )}

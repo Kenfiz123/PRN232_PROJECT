@@ -20,11 +20,27 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("frontend", policy =>
-        policy.AllowAnyHeader().AllowAnyMethod().AllowAnyOrigin());
+    {
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+            ?? ["http://localhost:3000", "http://localhost:5173"];
+        policy.WithOrigins(allowedOrigins)
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
 });
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseDeveloperExceptionPage();
+}
+else
+{
+    app.UseExceptionHandler("/error");
+}
 
 app.UseSwagger();
 app.UseSwaggerUI();
@@ -33,6 +49,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapHealthChecks("/health");
+app.MapGet("/error", () => Results.Problem("An unexpected error occurred.")).AllowAnonymous();
 app.MapGet("/", () => Results.Ok(new { service = "Finance Service", status = "running" }));
 
 var finance = app.MapGroup("/api/finance").WithTags("Finance").RequireAuthorization(AuthPolicies.AdminOrClubManagerOrMember);
@@ -40,12 +57,17 @@ var finance = app.MapGroup("/api/finance").WithTags("Finance").RequireAuthorizat
 finance.MapGet("/proposals", async (
     int? clubId,
     string? status,
+    int page,
+    int pageSize,
     FinanceDbContext db,
     ClaimsPrincipal user,
     HttpContext httpContext,
     ClubAccessClient clubAccess,
     CancellationToken cancellationToken) =>
 {
+    page = Math.Max(page, 1);
+    pageSize = pageSize is <= 0 or > 100 ? 20 : pageSize;
+
     var query = db.BudgetProposals.Include(x => x.Settlements).AsQueryable();
     if (!IsAdministrator(user))
     {
@@ -68,8 +90,13 @@ finance.MapGet("/proposals", async (
         query = query.Where(x => x.Status == status);
     }
 
-    var rows = await query.OrderByDescending(x => x.ProposedAtUtc).ToListAsync();
-    return Results.Ok(rows.Select(ToBudgetProposalResponse));
+    var total = await query.CountAsync(cancellationToken);
+    var rows = await query
+        .OrderByDescending(x => x.ProposedAtUtc)
+        .Skip((page - 1) * pageSize)
+        .Take(pageSize)
+        .ToListAsync(cancellationToken);
+    return Results.Ok(new { total, page, pageSize, items = rows.Select(ToBudgetProposalResponse) });
 });
 
 finance.MapGet("/proposals/{id:int}", async (
@@ -231,12 +258,17 @@ finance.MapPost("/proposals/{id:int}/reject", async (
 
 finance.MapGet("/settlements", async (
     string? status,
+    int page,
+    int pageSize,
     FinanceDbContext db,
     ClaimsPrincipal user,
     HttpContext httpContext,
     ClubAccessClient clubAccess,
     CancellationToken cancellationToken) =>
 {
+    page = Math.Max(page, 1);
+    pageSize = pageSize is <= 0 or > 100 ? 20 : pageSize;
+
     var query = db.Settlements.Include(x => x.BudgetProposal).AsQueryable();
     if (!IsAdministrator(user))
     {
@@ -249,8 +281,13 @@ finance.MapGet("/settlements", async (
         query = query.Where(x => x.Status == status);
     }
 
-    var rows = await query.OrderByDescending(x => x.SubmittedAtUtc).ToListAsync();
-    return Results.Ok(rows.Select(ToSettlementResponse));
+    var total = await query.CountAsync(cancellationToken);
+    var rows = await query
+        .OrderByDescending(x => x.SubmittedAtUtc)
+        .Skip((page - 1) * pageSize)
+        .Take(pageSize)
+        .ToListAsync(cancellationToken);
+    return Results.Ok(new { total, page, pageSize, items = rows.Select(ToSettlementResponse) });
 });
 
 finance.MapPost("/proposals/{id:int}/settlements", async (
@@ -281,6 +318,27 @@ finance.MapPost("/proposals/{id:int}/settlements", async (
     if (request.TotalSpent <= 0)
     {
         return Results.BadRequest(new { message = "Total spent must be greater than zero." });
+    }
+
+    // Validate receipt URL is a valid HTTPS URL
+    if (!Uri.TryCreate(request.ReceiptUrl, UriKind.Absolute, out var receiptUri))
+    {
+        return Results.BadRequest(new { message = "Receipt URL must be a valid URL." });
+    }
+    if (!receiptUri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { message = "Receipt URL must use HTTPS." });
+    }
+
+    if (request.TotalSpent > 1_000_000_000)
+    {
+        return Results.BadRequest(new { message = "Total spent exceeds maximum allowed amount." });
+    }
+
+    // Validate settlement doesn't exceed approved budget
+    if (proposal.ApprovedAmount.HasValue && request.TotalSpent > proposal.ApprovedAmount.Value)
+    {
+        return Results.BadRequest(new { message = $"Total spent ({request.TotalSpent:N0}) exceeds approved amount ({proposal.ApprovedAmount:N0})." });
     }
 
     if (proposal.Settlements.Any(x => x.Status == FinanceStatuses.Submitted || x.Status == FinanceStatuses.Approved))

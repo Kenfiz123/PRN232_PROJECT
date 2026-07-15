@@ -6,6 +6,7 @@ public sealed class JwtOptions
 
     public string Issuer { get; init; } = "ClubReportHub";
     public string Audience { get; init; } = "ClubReportHub.Client";
-    public string SigningKey { get; init; } = "dev-only-change-this-signing-key-with-at-least-32-characters";
-    public int ExpirationMinutes { get; init; } = 120;
+    public string SigningKey { get; init; } = null!;
+    public int ExpirationMinutes { get; init; } = 30;
+    public int RefreshTokenExpirationDays { get; init; } = 7;
 }

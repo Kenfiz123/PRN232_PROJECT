@@ -39,11 +39,27 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("frontend", policy =>
-        policy.AllowAnyHeader().AllowAnyMethod().AllowAnyOrigin());
+    {
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+            ?? ["http://localhost:3000", "http://localhost:5173"];
+        policy.WithOrigins(allowedOrigins)
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
 });
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseDeveloperExceptionPage();
+}
+else
+{
+    app.UseExceptionHandler("/error");
+}
 
 app.UseSwagger();
 app.UseSwaggerUI();
@@ -56,6 +72,7 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 });
 
 app.MapHealthChecks("/health");
+app.MapGet("/error", () => Results.Problem("An unexpected error occurred.")).AllowAnonymous();
 app.MapGet("/", () => Results.Ok(new { service = "Report Service", status = "running" }));
 
 var reports = app.MapGroup("/api/reports").WithTags("Reports").RequireAuthorization(AuthPolicies.AdminOrClubManagerOrMember);
@@ -454,10 +471,26 @@ reports.MapPost("/{id:int}/attachments/upload", async (
     var safeName = ReportAttachmentPolicy.GetSafeFileName(file.FileName);
     var storageRoot = ReportAttachmentPolicy.ResolveStorageRoot(attachmentOptions.Value.StoragePath, environment.ContentRootPath);
     var reportFolder = Path.Combine(storageRoot, report.Id.ToString());
+
+    // Validate path stays within storage root (prevent path traversal attacks)
+    var normalizedFolder = Path.GetFullPath(reportFolder);
+    if (!normalizedFolder.StartsWith(storageRoot, StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { message = "Invalid storage path." });
+    }
+
     Directory.CreateDirectory(reportFolder);
 
     var storedFileName = ReportAttachmentPolicy.CreateStoredFileName(safeName);
     var filePath = Path.Combine(reportFolder, storedFileName);
+
+    // Double-check the final path is within storage root
+    var normalizedFilePath = Path.GetFullPath(filePath);
+    if (!normalizedFilePath.StartsWith(storageRoot, StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { message = "Invalid file path." });
+    }
+
     await using (var stream = new FileStream(filePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
     {
         await file.CopyToAsync(stream, cancellationToken);
@@ -584,8 +617,14 @@ reports.MapPost("/{id:int}/review", async (
         return Results.BadRequest(new { message = "Only submitted reports can enter review." });
     }
 
-    if (report.CreatedByUserId == user.GetUserId()
-        || !await CanManageClubAsync(report.ClubId, clubAccess, httpContext, cancellationToken))
+    // Creator cannot review their own report
+    if (report.CreatedByUserId == user.GetUserId())
+    {
+        return Results.Forbid();
+    }
+
+    // Must have club management permission
+    if (!await CanManageClubAsync(report.ClubId, clubAccess, httpContext, cancellationToken))
     {
         return Results.Forbid();
     }

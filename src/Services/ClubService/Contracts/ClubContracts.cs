@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace ClubService.Contracts;
 
 public sealed record ClubResponse(
@@ -63,38 +65,42 @@ public sealed record ClubCreationApplicationResponse(
     int? ReviewedByUserId);
 
 public sealed record CreateClubRequest(
-    string Code,
-    string Name,
-    string Description,
-    string ContactEmail,
-    string ContactPhone);
+    [StringLength(20)] string Code,
+    [StringLength(200)] string Name,
+    [StringLength(1000)] string Description,
+    [StringLength(255), EmailAddress] string ContactEmail,
+    [StringLength(20)] string ContactPhone);
 
 public sealed record UpdateClubRequest(
-    string Name,
-    string Description,
-    string ContactEmail,
-    string ContactPhone,
+    [StringLength(200)] string Name,
+    [StringLength(1000)] string Description,
+    [StringLength(255), EmailAddress] string ContactEmail,
+    [StringLength(20)] string ContactPhone,
     bool IsActive);
 
-public sealed record AssignManagerRequest(int ManagerUserId, string ManagerName);
+public sealed record AssignManagerRequest(
+    int ManagerUserId,
+    [StringLength(200)] string ManagerName);
 
 public sealed record JoinClubRequest(
-    string? Message,
-    string PersonalInfo,
-    string Goals,
-    string Reason);
+    [StringLength(500)] string? Message,
+    [StringLength(500)] string PersonalInfo,
+    [StringLength(500)] string Goals,
+    [StringLength(500)] string Reason);
 
-public sealed record ReviewClubMembershipRequest(string? Note);
+public sealed record ReviewClubMembershipRequest([StringLength(1000)] string? Note);
 
-public sealed record AssignTreasurerRequest(int MemberUserId, string MemberName);
+public sealed record AssignTreasurerRequest(
+    int MemberUserId,
+    [StringLength(200)] string MemberName);
 
 public sealed record CreateClubApplicationRequest(
-    string Code,
-    string Name,
-    string Description,
-    string Purpose,
-    string Reason,
-    string ContactEmail,
-    string ContactPhone);
+    [StringLength(20)] string Code,
+    [StringLength(200)] string Name,
+    [StringLength(1000)] string Description,
+    [StringLength(500)] string Purpose,
+    [StringLength(500)] string Reason,
+    [StringLength(255), EmailAddress] string ContactEmail,
+    [StringLength(20)] string ContactPhone);
 
-public sealed record ReviewClubApplicationRequest(string? Note);
+public sealed record ReviewClubApplicationRequest([StringLength(1000)] string? Note);

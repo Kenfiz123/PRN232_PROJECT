@@ -8,9 +8,14 @@ public static class ClaimsPrincipalExtensions
     {
         var value = principal.FindFirstValue(ClaimTypes.NameIdentifier)
             ?? principal.FindFirstValue("sub")
-            ?? "0";
+            ?? throw new UnauthorizedAccessException("User ID claim not found in token.");
 
-        return int.TryParse(value, out var userId) ? userId : 0;
+        if (!int.TryParse(value, out var userId) || userId <= 0)
+        {
+            throw new UnauthorizedAccessException("Invalid user ID format in token.");
+        }
+
+        return userId;
     }
 
     public static string GetDisplayName(this ClaimsPrincipal principal)

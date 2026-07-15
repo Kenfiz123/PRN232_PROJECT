@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace FinanceService.Contracts;
 
 public sealed record BudgetProposalResponse(
@@ -39,14 +41,18 @@ public sealed record FinanceTransactionResponse(
 
 public sealed record CreateBudgetProposalRequest(
     int ClubId,
-    string ClubName,
+    [StringLength(200)] string ClubName,
     int? ActivityId,
-    string Title,
-    string Description,
-    decimal RequestedAmount);
+    [StringLength(200)] string Title,
+    [StringLength(1000)] string Description,
+    [Range(0.01, 1_000_000_000)] decimal RequestedAmount);
 
-public sealed record ReviewBudgetProposalRequest(decimal? ApprovedAmount, string? Note);
+public sealed record ReviewBudgetProposalRequest(
+    [Range(0.01, 1_000_000_000)] decimal? ApprovedAmount,
+    [StringLength(1000)] string? Note);
 
-public sealed record CreateSettlementRequest(decimal TotalSpent, string ReceiptUrl);
+public sealed record CreateSettlementRequest(
+    [Range(0.01, 1_000_000_000)] decimal TotalSpent,
+    [StringLength(500), Url] string ReceiptUrl);
 
-public sealed record ReviewSettlementRequest(string? Note);
+public sealed record ReviewSettlementRequest([StringLength(1000)] string? Note);

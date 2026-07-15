@@ -8,17 +8,31 @@ public static class DatabaseStartupExtensions
 {
     private const int MaxAttempts = 6;
 
-    public static Task ApplyMigrationsWithRetryAsync(
+    public static async Task ApplyMigrationsWithRetryAsync(
         this DbContext db,
         ILogger logger,
-        CancellationToken cancellationToken = default) =>
-        RunWithRetryAsync(db, () => db.Database.MigrateAsync(cancellationToken), "apply migrations", logger, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        await RunWithRetryAsync(
+            db,
+            () => db.Database.MigrateAsync(cancellationToken),
+            "apply migrations",
+            logger,
+            cancellationToken);
+    }
 
-    public static Task EnsureCreatedWithRetryAsync(
+    public static async Task EnsureCreatedWithRetryAsync(
         this DbContext db,
         ILogger logger,
-        CancellationToken cancellationToken = default) =>
-        RunWithRetryAsync(db, () => db.Database.EnsureCreatedAsync(cancellationToken), "ensure database exists", logger, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        await RunWithRetryAsync(
+            db,
+            () => db.Database.EnsureCreatedAsync(cancellationToken),
+            "ensure database exists",
+            logger,
+            cancellationToken);
+    }
 
     private static async Task RunWithRetryAsync(
         DbContext db,
@@ -49,14 +63,26 @@ public static class DatabaseStartupExtensions
                     return;
                 }
 
-                throw;
+                throw new InvalidOperationException($"Failed to {operationName} after {MaxAttempts} attempts: database already exists but is not reachable.", ex);
             }
             catch (SqlException ex) when (IsTransientStartupFailure(ex) && attempt < MaxAttempts)
             {
                 logger.LogWarning(ex, "Transient SQL startup failure while trying to {OperationName}. Retry {Attempt}/{MaxAttempts}.", operationName, attempt, MaxAttempts);
                 await WaitBeforeRetryAsync(attempt, cancellationToken);
             }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to {OperationName} on attempt {Attempt}/{MaxAttempts}.", operationName, attempt, MaxAttempts);
+                if (attempt >= MaxAttempts)
+                {
+                    throw new InvalidOperationException($"Failed to {operationName} after {MaxAttempts} attempts.", ex);
+                }
+                await WaitBeforeRetryAsync(attempt, cancellationToken);
+            }
         }
+
+        // If we exit the loop normally, all retries failed
+        throw new InvalidOperationException($"Failed to {operationName} after {MaxAttempts} attempts.");
     }
 
     private static Task WaitBeforeRetryAsync(int attempt, CancellationToken cancellationToken)
@@ -91,7 +117,7 @@ public static class DatabaseStartupExtensions
         {
             return await db.Database.CanConnectAsync(cancellationToken);
         }
-        catch (SqlException)
+        catch (SqlException ex)
         {
             return false;
         }

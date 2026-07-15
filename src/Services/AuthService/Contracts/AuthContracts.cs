@@ -1,17 +1,25 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace AuthService.Contracts;
 
-public sealed record LoginRequest(string Username, string Password);
+public sealed record LoginRequest(
+    [StringLength(100)] string Username,
+    string Password);
 
 public sealed record RegisterRequest(
-    string Username,
-    string FullName,
-    string Email,
+    [StringLength(100)] string Username,
+    [StringLength(200)] string FullName,
+    [StringLength(255), EmailAddress] string Email,
     string Password);
+
+public sealed record RefreshTokenRequest(string RefreshToken);
 
 public sealed record AuthResponse(
     string AccessToken,
     DateTimeOffset ExpiresAtUtc,
-    UserSummary User);
+    UserSummary User,
+    string? RefreshToken = null,
+    DateTimeOffset? RefreshTokenExpiresAtUtc = null);
 
 public sealed record UserSummary(
     int Id,
@@ -23,16 +31,16 @@ public sealed record UserSummary(
     bool IsLocked);
 
 public sealed record CreateUserRequest(
-    string Username,
-    string FullName,
-    string Email,
-    string Password,
+    [StringLength(100)] string Username,
+    [StringLength(200)] string FullName,
+    [StringLength(255), EmailAddress] string Email,
+    [StringLength(100, MinimumLength = 8)] string Password,
     IReadOnlyCollection<string> Roles);
 
 public sealed record UpdateUserRequest(
-    string FullName,
-    string Email,
+    [StringLength(200)] string FullName,
+    [StringLength(255), EmailAddress] string Email,
     bool IsActive,
     IReadOnlyCollection<string> Roles);
 
-public sealed record CreateRoleRequest(string Name);
+public sealed record CreateRoleRequest([StringLength(50)] string Name);

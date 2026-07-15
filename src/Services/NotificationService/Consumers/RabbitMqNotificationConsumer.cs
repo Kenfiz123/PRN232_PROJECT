@@ -20,76 +20,98 @@ public sealed class RabbitMqNotificationConsumer(
     private IConnection? _connection;
     private IModel? _channel;
 
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        try
+        const int maxRetries = 5;
+        var retryDelay = TimeSpan.FromSeconds(5);
+
+        for (var attempt = 1; attempt <= maxRetries; attempt++)
         {
-            var factory = new ConnectionFactory
+            try
             {
-                HostName = _options.HostName,
-                Port = _options.Port,
-                UserName = _options.UserName,
-                Password = _options.Password,
-                DispatchConsumersAsync = false
-            };
-
-            _connection = factory.CreateConnection();
-            _channel = _connection.CreateModel();
-            _channel.ExchangeDeclare(_options.ExchangeName, ExchangeType.Topic, durable: true, autoDelete: false);
-            _channel.ExchangeDeclare($"{_options.ExchangeName}.dead", ExchangeType.Topic, durable: true, autoDelete: false);
-            _channel.QueueDeclare(
-                queue: "notification-service",
-                durable: true,
-                exclusive: false,
-                autoDelete: false,
-                arguments: new Dictionary<string, object> { ["x-dead-letter-exchange"] = $"{_options.ExchangeName}.dead" });
-            _channel.QueueDeclare("notification-service.dead", durable: true, exclusive: false, autoDelete: false);
-            _channel.QueueBind("notification-service.dead", $"{_options.ExchangeName}.dead", "#");
-
-            foreach (var key in new[]
-            {
-                EventRoutingKeys.UserRegistered,
-                EventRoutingKeys.ClubCreated,
-                EventRoutingKeys.ActivityCreated,
-                EventRoutingKeys.ReportSubmitted,
-                EventRoutingKeys.ReportApproved,
-                EventRoutingKeys.ReportRejected,
-                EventRoutingKeys.KpiCalculated,
-                EventRoutingKeys.BudgetProposalSubmitted,
-                EventRoutingKeys.BudgetApproved,
-                EventRoutingKeys.SettlementOverdue,
-                EventRoutingKeys.ExportCompleted,
-                EventRoutingKeys.ReportDeadlineReminder
-            })
-            {
-                _channel.QueueBind("notification-service", _options.ExchangeName, key);
+                await InitializeRabbitMqAsync(stoppingToken);
+                logger.LogInformation("RabbitMQ consumer started successfully on queue notification-service");
+                return;
             }
-
-            _channel.BasicQos(0, 5, false);
-            var consumer = new EventingBasicConsumer(_channel);
-            consumer.Received += (_, args) =>
+            catch (Exception ex) when (attempt < maxRetries)
             {
-                try
-                {
-                    ProcessMessageAsync(args, stoppingToken).GetAwaiter().GetResult();
-                    _channel.BasicAck(args.DeliveryTag, multiple: false);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "Failed to process RabbitMQ message {DeliveryTag}", args.DeliveryTag);
-                    _channel.BasicNack(args.DeliveryTag, multiple: false, requeue: false);
-                }
-            };
+                logger.LogWarning(ex,
+                    "RabbitMQ consumer failed to start (attempt {Attempt}/{MaxRetries}). Retrying in {Delay}s...",
+                    attempt, maxRetries, retryDelay.TotalSeconds);
 
-            _channel.BasicConsume("notification-service", autoAck: false, consumer);
-            logger.LogInformation("Notification consumer started on RabbitMQ queue notification-service");
+                await Task.Delay(retryDelay, stoppingToken);
+                retryDelay = TimeSpan.FromSeconds(Math.Min(30, retryDelay.TotalSeconds * 1.5));
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "RabbitMQ consumer failed to start after {MaxRetries} attempts. Notification service will run without consuming events.",
+                    maxRetries);
+                return;
+            }
         }
-        catch (Exception ex)
+    }
+
+    private void InitializeRabbitMqAsync(CancellationToken stoppingToken)
+    {
+        var factory = new ConnectionFactory
         {
-            logger.LogWarning(ex, "RabbitMQ consumer could not start. Notification API will continue without live events.");
+            HostName = _options.HostName,
+            Port = _options.Port,
+            UserName = _options.UserName,
+            Password = _options.Password,
+            DispatchConsumersAsync = true
+        };
+
+        _connection = factory.CreateConnection();
+        _channel = _connection.CreateModel();
+        _channel.ExchangeDeclare(_options.ExchangeName, ExchangeType.Topic, durable: true, autoDelete: false);
+        _channel.ExchangeDeclare($"{_options.ExchangeName}.dead", ExchangeType.Topic, durable: true, autoDelete: false);
+        _channel.QueueDeclare(
+            queue: "notification-service",
+            durable: true,
+            exclusive: false,
+            autoDelete: false,
+            arguments: new Dictionary<string, object> { ["x-dead-letter-exchange"] = $"{_options.ExchangeName}.dead" });
+        _channel.QueueDeclare("notification-service.dead", durable: true, exclusive: false, autoDelete: false);
+        _channel.QueueBind("notification-service.dead", $"{_options.ExchangeName}.dead", "#");
+
+        foreach (var key in new[]
+        {
+            EventRoutingKeys.UserRegistered,
+            EventRoutingKeys.ClubCreated,
+            EventRoutingKeys.ActivityCreated,
+            EventRoutingKeys.ReportSubmitted,
+            EventRoutingKeys.ReportApproved,
+            EventRoutingKeys.ReportRejected,
+            EventRoutingKeys.KpiCalculated,
+            EventRoutingKeys.BudgetProposalSubmitted,
+            EventRoutingKeys.BudgetApproved,
+            EventRoutingKeys.SettlementOverdue,
+            EventRoutingKeys.ExportCompleted,
+            EventRoutingKeys.ReportDeadlineReminder
+        })
+        {
+            _channel.QueueBind("notification-service", _options.ExchangeName, key);
         }
 
-        return Task.CompletedTask;
+        _channel.BasicQos(0, 5, false);
+        var consumer = new AsyncEventingBasicConsumer(_channel);
+        consumer.Received += async (_, args) =>
+        {
+            try
+            {
+                await ProcessMessageAsync(args, stoppingToken);
+                _channel.BasicAck(args.DeliveryTag, multiple: false);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to process RabbitMQ message {DeliveryTag}", args.DeliveryTag);
+                _channel.BasicNack(args.DeliveryTag, multiple: false, requeue: false);
+            }
+        };
+
+        _channel.BasicConsume("notification-service", autoAck: false, consumer);
     }
 
     public override void Dispose()
@@ -111,15 +133,27 @@ public sealed class RabbitMqNotificationConsumer(
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<NotificationDbContext>();
-        if (await db.ProcessedEvents.AnyAsync(x => x.EventId == eventId, cancellationToken))
+
+        // Check for duplicate processing
+        var alreadyProcessed = await db.ProcessedEvents
+            .AnyAsync(x => x.EventId == eventId, cancellationToken);
+        if (alreadyProcessed)
         {
+            logger.LogDebug("Skipping duplicate event {EventId}", eventId);
             return;
         }
 
         var notification = CreateNotification(routingKey, root);
         db.Notifications.Add(notification);
-        db.ProcessedEvents.Add(new ProcessedEvent { EventId = eventId, RoutingKey = routingKey });
+        db.ProcessedEvents.Add(new ProcessedEvent
+        {
+            EventId = eventId,
+            RoutingKey = routingKey,
+            ProcessedAtUtc = DateTimeOffset.UtcNow
+        });
+
         await db.SaveChangesAsync(cancellationToken);
+        logger.LogInformation("Processed event {EventId} with routing key {RoutingKey}", eventId, routingKey);
     }
 
     private static Notification CreateNotification(string routingKey, JsonElement root)

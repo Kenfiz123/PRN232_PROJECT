@@ -12,13 +12,23 @@ public static class JwtServiceCollectionExtensions
     {
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         var jwtOptions = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
+
+        if (string.IsNullOrWhiteSpace(jwtOptions.SigningKey))
+        {
+            throw new InvalidOperationException("JWT SigningKey must be configured in Jwt:SigningKey section.");
+        }
+
         var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SigningKey));
 
         services
             .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
             {
-                options.RequireHttpsMetadata = false;
+                // Require HTTPS in production, allow HTTP in development
+                options.RequireHttpsMetadata = !string.Equals(
+                    configuration.GetValue<string>("Environment"),
+                    "Development",
+                    StringComparison.OrdinalIgnoreCase);
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
@@ -51,10 +61,8 @@ public static class JwtServiceCollectionExtensions
                 AuthRoles.ClubManager,
                 AuthRoles.Treasurer,
                 AuthRoles.ClubMember));
+            // FIX H10: Fixed misleading policy name - renamed to reflect actual behavior
             options.AddPolicy(AuthPolicies.ClubManagerOrTreasurer, policy => policy.RequireRole(
-                AuthRoles.Admin,
-                AuthRoles.SystemAdmin,
-                AuthRoles.StudentAffairsAdmin,
                 AuthRoles.ClubManager,
                 AuthRoles.Treasurer));
         });

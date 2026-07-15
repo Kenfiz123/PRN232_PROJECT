@@ -9,7 +9,14 @@ builder.Services.AddClubReportJwt(builder.Configuration);
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("frontend", policy =>
-        policy.AllowAnyHeader().AllowAnyMethod().AllowAnyOrigin());
+    {
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+            ?? ["http://localhost:3000", "http://localhost:5173"];
+        policy.WithOrigins(allowedOrigins)
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
 });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

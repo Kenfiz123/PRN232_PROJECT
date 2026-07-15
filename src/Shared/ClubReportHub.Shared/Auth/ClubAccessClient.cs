@@ -1,7 +1,9 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -21,8 +23,12 @@ public sealed record ClubAccessSnapshot(
     public bool CanView => IsManager || IsApprovedMember;
 }
 
-public sealed class ClubAccessClient(HttpClient httpClient, ILogger<ClubAccessClient> logger)
+public sealed class ClubAccessClient(
+    HttpClient httpClient,
+    IMemoryCache cache,
+    ILogger<ClubAccessClient> logger)
 {
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -37,6 +43,53 @@ public sealed class ClubAccessClient(HttpClient httpClient, ILogger<ClubAccessCl
             return [];
         }
 
+        // Extract user ID from token for cache key
+        var userId = ExtractUserIdFromToken(bearerToken);
+        if (userId <= 0)
+        {
+            return [];
+        }
+
+        var cacheKey = $"ClubAccess_{userId}";
+
+        // Try to get from cache first
+        if (cache.TryGetValue(cacheKey, out IReadOnlyList<ClubAccessSnapshot>? cachedAccess) && cachedAccess is not null)
+        {
+            return cachedAccess;
+        }
+
+        // Fetch from API
+        var access = await FetchAccessFromApiAsync(bearerToken, cancellationToken);
+
+        // Cache the result with sliding expiration
+        if (access.Count > 0)
+        {
+            var cacheOptions = new MemoryCacheEntryOptions()
+                .SetSlidingExpiration(CacheDuration)
+                .SetAbsoluteExpiration(TimeSpan.FromMinutes(15))
+                .SetPriority(CacheItemPriority.Normal);
+            cache.Set(cacheKey, access, cacheOptions);
+        }
+
+        return access;
+    }
+
+    public void InvalidateCache(int userId)
+    {
+        var cacheKey = $"ClubAccess_{userId}";
+        cache.Remove(cacheKey);
+    }
+
+    public void InvalidateCacheForAllUsers()
+    {
+        // In production, you might want to use Redis or a distributed cache
+        // For IMemoryCache, we rely on TTL expiration
+    }
+
+    private async Task<IReadOnlyList<ClubAccessSnapshot>>> FetchAccessFromApiAsync(
+        string bearerToken,
+        CancellationToken cancellationToken)
+    {
         using var request = new HttpRequestMessage(HttpMethod.Get, "api/clubs/me/access");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
 
@@ -57,17 +110,56 @@ public sealed class ClubAccessClient(HttpClient httpClient, ILogger<ClubAccessCl
             return [];
         }
     }
+
+    private static int ExtractUserIdFromToken(string bearerToken)
+    {
+        try
+        {
+            // Parse JWT without validation to get user ID for cache key
+            var parts = bearerToken.Split('.');
+            if (parts.Length != 3)
+            {
+                return 0;
+            }
+
+            var payload = parts[1];
+            // Add padding if needed for Base64 decoding
+            var padded = payload.Length % 4 == 0 ? payload : payload + new string('=', 4 - payload.Length % 4);
+            // Replace URL-safe characters
+            padded = padded.Replace('-', '+').Replace('_', '/');
+            var json = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(padded));
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("sub", out var subElement))
+            {
+                return int.TryParse(subElement.GetString(), out var userId) ? userId : 0;
+            }
+            return 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
 }
 
 public static class ClubAccessServiceCollectionExtensions
 {
     public static IServiceCollection AddClubAccessClient(this IServiceCollection services, IConfiguration configuration)
     {
+        // Add memory cache if not already registered
+        services.AddMemoryCache(options =>
+        {
+            options.SizeLimit = 10000; // Max 10000 entries
+            options.ExpirationScanFrequency = TimeSpan.FromMinutes(5);
+        });
+
         services.AddHttpClient<ClubAccessClient>(client =>
         {
             var baseUrl = configuration["Services:ClubService:BaseUrl"] ?? "http://localhost:5102";
             client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
+            client.Timeout = TimeSpan.FromSeconds(10);
         });
+
         return services;
     }
 }
@@ -81,5 +173,12 @@ public static class ClubAccessHttpContextExtensions
         return authorization.StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase)
             ? authorization[bearerPrefix.Length..].Trim()
             : string.Empty;
+    }
+
+    public static int GetUserId(this ClaimsPrincipal principal)
+    {
+        var claim = principal.FindFirst(ClaimTypes.NameIdentifier)
+            ?? principal.FindFirst("sub");
+        return int.TryParse(claim?.Value, out var userId) ? userId : 0;
     }
 }

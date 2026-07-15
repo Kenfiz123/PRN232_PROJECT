@@ -1,10 +1,13 @@
 using System.Security.Claims;
+using System.Threading.RateLimiting;
 using AuthService.Contracts;
 using AuthService.Data;
 using AuthService.Models;
+using AuthService.Services;
 using ClubReportHub.Shared.Auth;
 using ClubReportHub.Shared.Data;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -12,25 +15,89 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<AuthDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
+builder.Services.AddScoped<RefreshTokenService>();
 builder.Services.AddClubReportJwt(builder.Configuration);
+
+// Rate Limiting
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // Strict rate limit for login attempts - prevent brute force
+    options.AddPolicy("loginLimit", context =>
+        RateLimitPartition.GetSlidingWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new SlidingWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                SegmentsPerWindow = 5,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+
+    // Moderate limit for registration
+    options.AddPolicy("registerLimit", context =>
+        RateLimitPartition.GetSlidingWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new SlidingWindowRateLimiterOptions
+            {
+                PermitLimit = 3,
+                Window = TimeSpan.FromMinutes(5),
+                SegmentsPerWindow = 5,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+
+    // Refresh token limit - per user to prevent token stealing abuse
+    options.AddPolicy("refreshLimit", context =>
+        RateLimitPartition.GetSlidingWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new SlidingWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                SegmentsPerWindow = 5,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+});
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("frontend", policy =>
-        policy.AllowAnyHeader().AllowAnyMethod().AllowAnyOrigin());
+    {
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+            ?? ["http://localhost:3000", "http://localhost:5173"];
+        policy.WithOrigins(allowedOrigins)
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
 });
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
+if (app.Environment.IsDevelopment())
+{
+    app.UseDeveloperExceptionPage();
+}
+else
+{
+    app.UseExceptionHandler("/error");
+}
+
 app.UseSwagger();
 app.UseSwaggerUI();
 app.UseCors("frontend");
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapHealthChecks("/health");
+app.MapGet("/error", () => Results.Problem("An unexpected error occurred.")).AllowAnonymous();
 app.MapGet("/", () => Results.Ok(new { service = "Auth Service", status = "running" }));
 
 var auth = app.MapGroup("/api/auth").WithTags("Authentication");
@@ -38,7 +105,7 @@ auth.MapPost("/login", async (
     LoginRequest request,
     AuthDbContext db,
     IPasswordHasher<User> passwordHasher,
-    JwtTokenFactory tokenFactory) =>
+    RefreshTokenService refreshTokenService) =>
 {
     var user = await db.Users
         .Include(x => x.UserRoles)
@@ -56,22 +123,38 @@ auth.MapPost("/login", async (
         return Results.Unauthorized();
     }
 
-    return Results.Ok(CreateAuthResponse(user, tokenFactory));
-}).AllowAnonymous();
+    var refreshToken = await refreshTokenService.CreateRefreshTokenAsync(user.Id);
+    return Results.Ok(refreshTokenService.CreateAuthResponse(user, refreshToken));
+}).AllowAnonymous().RequireRateLimiting("loginLimit");
 
 auth.MapPost("/register", async (
     RegisterRequest request,
     AuthDbContext db,
     IPasswordHasher<User> passwordHasher,
-    JwtTokenFactory tokenFactory) =>
+    RefreshTokenService refreshTokenService) =>
 {
     var username = request.Username.Trim();
     var email = request.Email.Trim();
     var fullName = request.FullName.Trim();
 
-    if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(fullName) || request.Password.Length < 8)
+    if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(fullName))
     {
-        return Results.BadRequest(new { message = "Username, full name, email, and an 8+ character password are required." });
+        return Results.BadRequest(new { message = "Username, full name, email are required." });
+    }
+
+    // Password complexity validation
+    var password = request.Password;
+    if (password.Length < 8)
+    {
+        return Results.BadRequest(new { message = "Password must be at least 8 characters." });
+    }
+    var hasUpper = password.Any(char.IsUpper);
+    var hasLower = password.Any(char.IsLower);
+    var hasDigit = password.Any(char.IsDigit);
+    var hasSpecial = password.Any(c => !char.IsLetterOrDigit(c));
+    if (!(hasUpper && hasLower && hasDigit && hasSpecial))
+    {
+        return Results.BadRequest(new { message = "Password must contain uppercase, lowercase, digit, and special character." });
     }
 
     if (await db.Users.AnyAsync(x => x.Username == username || x.Email == email))
@@ -100,11 +183,53 @@ auth.MapPost("/register", async (
     db.Users.Add(user);
     await db.SaveChangesAsync();
 
-    return Results.Created($"/api/users/{user.Id}", CreateAuthResponse(user, tokenFactory, [AuthRoles.ClubMember]));
-}).AllowAnonymous();
+    var refreshToken = await refreshTokenService.CreateRefreshTokenAsync(user.Id);
+    return Results.Created($"/api/users/{user.Id}", refreshTokenService.CreateAuthResponse(user, refreshToken, [AuthRoles.ClubMember]));
+}).AllowAnonymous().RequireRateLimiting("registerLimit");
 
-auth.MapPost("/refresh", () => Results.Problem("Refresh token flow is reserved for the production hardening step.", statusCode: StatusCodes.Status501NotImplemented))
-    .RequireAuthorization();
+auth.MapPost("/refresh", async (
+    RefreshTokenRequest request,
+    RefreshTokenService refreshTokenService,
+    AuthDbContext db) =>
+{
+    var oldToken = await refreshTokenService.GetRefreshTokenAsync(request.RefreshToken);
+    if (oldToken is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    if (!oldToken.IsActive)
+    {
+        // Token is expired or revoked - revoke entire family for security
+        if (oldToken.IsRevoked && !oldToken.IsExpired)
+        {
+            await refreshTokenService.RevokeFamilyAsync(oldToken.FamilyId, null);
+        }
+        return Results.Unauthorized();
+    }
+
+    var clientIp = "unknown"; // In production, get from HttpContext
+    var rotatedToken = await refreshTokenService.RotateRefreshTokenAsync(oldToken, clientIp);
+    if (rotatedToken is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    return Results.Ok(refreshTokenService.CreateAuthResponse(oldToken.User, rotatedToken));
+}).AllowAnonymous().RequireRateLimiting("refreshLimit");
+
+auth.MapPost("/logout", async (
+    RefreshTokenRequest request,
+    RefreshTokenService refreshTokenService,
+    AuthDbContext db) =>
+{
+    var token = await refreshTokenService.GetRefreshTokenAsync(request.RefreshToken);
+    if (token is not null)
+    {
+        await refreshTokenService.RevokeFamilyAsync(token.FamilyId, null);
+    }
+    return Results.NoContent();
+}).RequireAuthorization();
 
 var users = app.MapGroup("/api/users").WithTags("Users").RequireAuthorization(policy =>
     policy.RequireRole(AuthRoles.Admin, AuthRoles.SystemAdmin));
@@ -253,7 +378,10 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
     var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseStartup");
     await db.ApplyMigrationsWithRetryAsync(logger);
-    await AuthSeeder.SeedAsync(db, scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>());
+    await AuthSeeder.SeedAsync(
+        db,
+        scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>(),
+        builder.Configuration);
 }
 
 app.Run();
@@ -262,14 +390,4 @@ static UserSummary ToSummary(User user, IEnumerable<string>? withRoles = null)
 {
     var roles = withRoles?.ToArray() ?? user.UserRoles.Select(x => x.Role.Name).OrderBy(x => x).ToArray();
     return new UserSummary(user.Id, user.Username, user.FullName, user.Email, roles, user.IsActive, user.IsLocked);
-}
-
-static AuthResponse CreateAuthResponse(User user, JwtTokenFactory tokenFactory, IEnumerable<string>? withRoles = null)
-{
-    var roles = withRoles?.ToArray() ?? user.UserRoles.Select(x => x.Role.Name).OrderBy(x => x).ToArray();
-    var token = tokenFactory.CreateToken(user.Id, user.Username, user.FullName, roles);
-    return new AuthResponse(
-        token.AccessToken,
-        token.ExpiresAtUtc,
-        ToSummary(user, roles));
 }

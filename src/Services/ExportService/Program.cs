@@ -21,6 +21,13 @@ builder.Services.Configure<ExportOptions>(builder.Configuration.GetSection(Expor
 builder.Services.AddClubReportJwt(builder.Configuration);
 builder.Services.AddClubAccessClient(builder.Configuration);
 builder.Services.AddRabbitMqEventBus(builder.Configuration);
+
+// Add HttpClient for Report Service communication
+builder.Services.AddHttpClient("ReportService", client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["Services:ReportService:BaseUrl"] ?? "http://localhost:5103/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
 builder.Services.AddHangfire(config => config
     .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
     .UseSimpleAssemblyNameTypeSerializer()
@@ -37,11 +44,27 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("frontend", policy =>
-        policy.AllowAnyHeader().AllowAnyMethod().AllowAnyOrigin());
+    {
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+            ?? ["http://localhost:3000", "http://localhost:5173"];
+        policy.WithOrigins(allowedOrigins)
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
 });
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseDeveloperExceptionPage();
+}
+else
+{
+    app.UseExceptionHandler("/error");
+}
 
 app.UseSwagger();
 app.UseSwaggerUI();
@@ -54,6 +77,7 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 });
 
 app.MapHealthChecks("/health");
+app.MapGet("/error", () => Results.Problem("An unexpected error occurred.")).AllowAnonymous();
 app.MapGet("/", () => Results.Ok(new { service = "Export Service", status = "running" }));
 
 var exports = app.MapGroup("/api/exports").WithTags("Exports").RequireAuthorization(AuthPolicies.AdminOrClubManagerOrMember);

@@ -43,15 +43,26 @@ public sealed class ReportDeadlineJobs(ReportDbContext db, IEventBus eventBus, I
             .Distinct()
             .ToListAsync(cancellationToken);
 
-        // Club catalog is owned by Club Service; this bounded context only emits the report-side fact.
-        var missingClubIds = Enumerable.Range(1, 3).Except(submittedClubIds).ToArray();
+        // NOTE: The complete list of active clubs is owned by ClubService.
+        // This bounded context only knows about clubs that have submitted reports.
+        // The NotificationService should cross-reference with ClubService to determine truly missing clubs.
+        // For now, we emit all club IDs that have NOT submitted, letting NotificationService filter.
+        var missingClubIds = submittedClubIds.Count == 0
+            ? Array.Empty<int>()
+            : await db.Reports
+                .Where(x => x.Period != period && submittedClubIds.Contains(x.ClubId))
+                .Select(x => x.ClubId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
         await eventBus.PublishAsync(new ReportDeadlineReminderEvent(
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
             period,
             dueDate,
-            missingClubIds), EventRoutingKeys.ReportDeadlineReminder, cancellationToken);
+            missingClubIds.ToArray()), EventRoutingKeys.ReportDeadlineReminder, cancellationToken);
 
-        logger.LogInformation("Published deadline reminder for {Period} with {MissingCount} missing clubs", period, missingClubIds.Length);
+        logger.LogInformation("Published deadline reminder for {Period} due {DueDate} with {MissingCount} clubs that may need reminder",
+            period, dueDate, missingClubIds.Count);
     }
 }

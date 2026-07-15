@@ -8,6 +8,7 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options) : DbC
     public DbSet<User> Users => Set<User>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<UserRole> UserRoles => Set<UserRole>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -32,6 +33,17 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options) : DbC
             entity.HasKey(x => new { x.UserId, x.RoleId });
             entity.HasOne(x => x.User).WithMany(x => x.UserRoles).HasForeignKey(x => x.UserId);
             entity.HasOne(x => x.Role).WithMany(x => x.UserRoles).HasForeignKey(x => x.RoleId);
+        });
+
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.HasIndex(x => x.Token).IsUnique();
+            entity.HasIndex(x => new { x.UserId, x.IsExpired, x.RevokedAtUtc });
+            entity.Property(x => x.Token).HasMaxLength(500);
+            entity.Property(x => x.FamilyId).HasMaxLength(100);
+            entity.Property(x => x.RevokedByIp).HasMaxLength(50);
+            entity.Property(x => x.ReplacedByToken).HasMaxLength(500);
+            entity.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

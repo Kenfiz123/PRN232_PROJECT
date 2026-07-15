@@ -14,6 +14,9 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
     <PackageReference Include="xunit" Version="2.5.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+    <PackageReference Include="Moq" Version="4.20.70" />
+    <PackageReference Include="FluentAssertions" Version="6.12.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -22,6 +25,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Services\ReportService\ReportService.csproj" />
+    <ProjectReference Include="..\..\src\Services\AuthService\AuthService.csproj" />
+    <ProjectReference Include="..\..\src\Services\ClubService\ClubService.csproj" />
+    <ProjectReference Include="..\..\src\Services\FinanceService\FinanceService.csproj" />
     <ProjectReference Include="..\..\src\Shared\ClubReportHub.Shared\ClubReportHub.Shared.csproj" />
   </ItemGroup>
 

@@ -21,11 +21,27 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("frontend", policy =>
-        policy.AllowAnyHeader().AllowAnyMethod().AllowAnyOrigin());
+    {
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+            ?? ["http://localhost:3000", "http://localhost:5173"];
+        policy.WithOrigins(allowedOrigins)
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
 });
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseDeveloperExceptionPage();
+}
+else
+{
+    app.UseExceptionHandler("/error");
+}
 
 app.UseSwagger();
 app.UseSwaggerUI();
@@ -34,6 +50,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapHealthChecks("/health");
+app.MapGet("/error", () => Results.Problem("An unexpected error occurred.")).AllowAnonymous();
 app.MapGet("/", () => Results.Ok(new { service = "Club Service", status = "running" }));
 
 var clubs = app.MapGroup("/api/clubs").WithTags("Clubs").RequireAuthorization(AuthPolicies.AdminOrClubManagerOrMember);
